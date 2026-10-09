@@ -464,12 +464,19 @@ def main(args):
                         continue
                     e = json.loads(line)
                     if e.get("audio_filepath") is not None:
-                        prior[e["audio_filepath"]] = (e.get("sim"), e.get("sim_model"))
+                        prior[e["audio_filepath"]] = e
             carried = 0
             for e in entries:
                 hit = prior.get(e.get("audio_filepath"))
-                if hit and isinstance(hit[0], (int, float)):
-                    e["sim"], e["sim_model"] = hit
+                if hit and isinstance(hit.get("sim"), (int, float)):
+                    # API regeneration reuses filenames, including when the old fork remains
+                    # in the bucket. Reuse a score only for the same audio/reference pair.
+                    if e.get("timing_backend") == "api" and any(
+                        not e.get(field) or e[field] != hit.get(field)
+                        for field in ("audio_sha256", "prompt_audio_sha256")
+                    ):
+                        continue
+                    e["sim"], e["sim_model"] = hit["sim"], hit.get("sim_model")
                     carried += 1
             print(f"  carried over {carried} existing score(s) from the previous run")
 

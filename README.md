@@ -24,6 +24,7 @@ Our intention with this leaderboard is for it to be **shaped by the community**;
 - [Batch evaluation (main tab)](#batch-evaluation-main-tab)
   - [Publishing results](#publishing-results)
 - [Adding a new model](#adding-a-new-model)
+- [API model evaluation](#api-model-evaluation)
 - [Time-to-first audio (streaming) evaluation](#time-to-first-audio-streaming-evaluation)
 - [Citation](#citation)
 
@@ -187,6 +188,19 @@ python scripts/open_results_pr.py --model_id openbmb/VoxCPM2 \
 
 A new versions entry should be set in the HF space code [here](https://huggingface.co/spaces/hf-audio/open_tts_leaderboard/blob/main/leaderboard_data.py#L50).
 
+
+## API model evaluation
+
+The [API backend](api/README.md) evaluates hosted TTS services with the same datasets,
+Qwen3 ASR and language normalization used by the local backends. Generation runs locally
+with provider credentials; ASR and supported voice-cloning SIM use the shared HF Jobs.
+It includes explicit model/voice configurations, retries, resumable generation and a
+per-model checklist for collecting benchmark results.
+
+API results are exported separately with client latency, supported streaming TTFA and
+request concurrency recorded. These timings include network and service overhead;
+they use a dedicated results bucket and do not populate the H200 RTFx or A100/CPU TTFA
+columns. See the [API setup and evaluation commands](api/README.md).
 
 ## Adding a new model
 

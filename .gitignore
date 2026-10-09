@@ -154,6 +154,7 @@ activemq-data/
 .env
 .envrc
 .venv
+.venv-api/
 env/
 venv/
 ENV/
@@ -208,6 +209,9 @@ tempCodeRunnerFile.py
 
 # Ruff stuff:
 .ruff_cache/
+
+# API evaluation outputs (audio, manifests and separate metric exports)
+/api/results/
 
 # PyPI configuration file
 .pypirc
