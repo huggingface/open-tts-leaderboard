@@ -31,13 +31,15 @@ BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)"   # the sourcing bac
 SPACE="${SPACE:-bezzam/evals}"                                   # shared scorer image (stages 2 & 3)
 RESULTS_BUCKET="${RESULTS_BUCKET:-hf-audio/tts_leaderboard_h200}"   # shared HF bucket (per-model folders)
 # HF namespace holding your PRIVATE copies of the eval datasets (their licenses forbid
-# redistribution; push them with scripts/prepare_{seed_tts,cv3}_eval.py). Only supplies the defaults
-# below — DATASET_PATH / CV3_EVAL_PATH (or a DATASET_CONFIGS line's 4th field) can name any repo.
+# redistribution; push them with scripts/prepare_{seed_tts,cv3,minimax}_eval.py). Only supplies the
+# defaults below — DATASET_PATH / CV3_EVAL_PATH / MINIMAX_EVAL_PATH (or a DATASET_CONFIGS line's 4th
+# field) can name any repo.
 DATASET_NAMESPACE="${DATASET_NAMESPACE:-bezzam}"
 # Default dataset repo, used for every DATASET_CONFIGS line that does not name its own (4th field).
 DEFAULT_DATASET_PATH="${DATASET_PATH:-${DATASET_NAMESPACE}/seed_tts_eval}"
-# The other eval set — named explicitly by the CV3 lines of a backend's DATASET_CONFIGS.
+# The other eval sets — named explicitly by the CV3 / MiniMax lines of a backend's DATASET_CONFIGS.
 CV3_EVAL_PATH="${CV3_EVAL_PATH:-${DATASET_NAMESPACE}/cv3_eval}"
+MINIMAX_EVAL_PATH="${MINIMAX_EVAL_PATH:-${DATASET_NAMESPACE}/minimax_eval}"
 ORG_NAME="${ORG_NAME:-}"
 # Stage-1 (generation) flavor. IMPORTANT: keep this the SAME (h200) for EVERY backend — RTFx is
 # measured on the generation stage, so a uniform GPU is required for RTFx to be comparable across

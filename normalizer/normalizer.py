@@ -66,9 +66,9 @@ def remove_symbols_and_diacritics(s: str, keep=""):
 
 def remove_symbols(s: str):
     """
-    Replace any other markers, symbols, punctuations with a space, keeping diacritics
+    Replace any symbols, punctuations with a space, keeping diacritics and other combining marks
     """
-    return "".join(" " if unicodedata.category(c)[0] in "MSP" else c for c in unicodedata.normalize("NFKC", s))
+    return "".join(" " if unicodedata.category(c)[0] in "SP" else c for c in unicodedata.normalize("NFKC", s))
 
 
 class BasicMultilingualTextNormalizer:
@@ -81,8 +81,8 @@ class BasicMultilingualTextNormalizer:
         s = re.sub(r"\(([^)]+?)\)", "", s)  # remove words between parenthesis
         s = self.clean(s).lower()
 
-        # Remove punctuations and extra spaces
-        s = re.sub(r"[^\w\s]", "", s)
+        # Remove punctuations and extra spaces; keep combining marks (e.g. Hindi, Thai vowel signs)
+        s = re.sub(r"[^\w\s]", lambda m: m.group() if unicodedata.category(m.group())[0] == "M" else "", s)
         s = re.sub(r"\s+", " ", s).strip()
 
         return s
