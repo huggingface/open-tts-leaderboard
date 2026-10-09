@@ -6,7 +6,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common
 
 # ── Backend config ───────────────────────────────────────────────────────────
 TTS_SPACE="${TTS_SPACE:-bezzam/evals-inflect}"   # stage-1 image (Dockerfile in the Space: https://huggingface.co/spaces/bezzam/evals-inflect/blob/main/Dockerfile)
-DEFAULT_STAGES="generate transcribe"             # no SIM (fixed voice)
+DEFAULT_STAGES="generate transcribe utmos"             # no SIM (fixed voice)
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
 RUN_EVAL_INJECT="$(inject_run_eval)"
 

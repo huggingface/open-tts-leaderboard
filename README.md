@@ -13,6 +13,7 @@ While human preference is the ultimate decider, **arenas cannot scale to keep up
 1. **Intelligibility**: word/character error rate (WER and CER) between the target text and the generated audio's transcript, using [Qwen3 ASR](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf) (top ranking open-source model on the [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard)).
 2. **Speed**: inverse real-time factor (RTFx) for batched offline inference on an H200 GPU, and time-to-first-audio (TTFA) for quantifying streaming batch size 1 latency on an A100 GPU and CPU.
 3. **Speaker similarity** by computing the cosine similarity (SIM) between [WavLM speaker embeddings](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval) of the generated audio and the reference clip. Note that not all models support voice cloning, so those models are omitted from this evaluation.
+4. **Naturalness**: predicted MOS (1-5) with [UTMOS22 strong](https://github.com/tarepan/SpeechMOS) (UTMOS).
 
 By relying on objective metrics **evaluating a model drops from a couple weeks (for collecting votes) to a couple hours** ⚡
 
@@ -103,7 +104,7 @@ facebook/seamless-m4t-v2-large: RTFx = 21.19
 
 Each model family has its own folder (e.g. [kokoro/](kokoro/), [voxcpm2/](voxcpm2/), [transformers/](transformers/)) with a `submit_jobs.sh` that is run **locally** and submits HF Jobs to HF servers. The orchestration shared by all backends lives in [scripts/tts_jobs_common.sh](scripts/tts_jobs_common.sh).
 
-For each (model, dataset split) pair, the pipeline runs three sequential HF Jobs (two if the model is not voice cloning), followed by scoring on your machine. The splits of a model run in parallel; models run one after another.
+For each (model, dataset split) pair, the pipeline runs four sequential HF Jobs (three if the model is not voice cloning), followed by scoring on your machine. The splits of a model run in parallel; models run one after another.
 
 ```mermaid
 flowchart LR
@@ -116,34 +117,40 @@ flowchart LR
         gen["<b>1. Generate</b><br/>&lt;backend&gt;/run_eval.py · H200"]
         asr["<b>2. Transcribe</b><br/>Qwen3-ASR · L4"]
         sim["<b>3. Speaker similarity</b><br/>WavLM-SV · L4"]
+        utmos["<b>4. UTMOS</b><br/>UTMOS22 · L4"]
     end
 
     ds[("Private datasets<br/>seed_tts_eval / cv3_eval")]
     bucket[("RESULTS_BUCKET<br/>wavs + JSONL manifests")]
 
-    submit --> gen --> asr -->|voice cloning only| sim
+    submit --> gen --> asr -->|voice cloning only| sim --> utmos
+    asr --> utmos
     ds --> gen
     gen -->|wavs + manifest| bucket
     asr <-->|pred_text| bucket
     sim <-->|sim| bucket
+    utmos -->|UTMOS_*.json| bucket
     bucket -->|manifests only| score
 ```
 
 1. **Generate** (`generate`): the backend's `run_eval.py` synthesizes every sample of the split and writes the wavs plus a JSONL manifest to `RESULTS_BUCKET`, in a folder per model.
 2. **Transcribe** (`transcribe`): [transformers/transcribe.py](transformers/transcribe.py) transcribes the wavs with [Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf), using the split's language as a hint.
 3. **Speaker similarity** (`sim`, voice cloning only): [transformers/score_similarity.py](transformers/score_similarity.py) compares each generated clip with its reference prompt, using the [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval#metrics) speaker-verification model (WavLM-large + ECAPA-TDNN, mirrored [here](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval)).
-4. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
+4. **UTMOS** (`utmos`): [transformers/score_utmos.py](transformers/score_utmos.py) predicts a MOS for each wav with UTMOS22 strong.
+5. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
    - **WER** after text normalization (CER for `zh`, `ja`, `ko`)
    - **RTFx**: total audio duration divided by total generation time, measured in stage 1
    - **SIM**: mean speaker similarity, for voice cloning only
+   - **UTMOS**: mean predicted MOS
 
-The stages are separate jobs because the TTS, ASR and speaker-similarity models have conflicting dependencies: stage 1 uses the backend's own Docker Space image, and stages 2 and 3 share [bezzam/evals](https://huggingface.co/spaces/bezzam/evals).
+The stages are separate jobs because the TTS, ASR and speaker-similarity models have conflicting dependencies: stage 1 uses the backend's own Docker Space image, and stages 2-4 share [bezzam/evals](https://huggingface.co/spaces/bezzam/evals).
 
 | Stage | Flavor | Hardware |
 |---|---|---|
 | 1. Generate | `h200` | 1x Nvidia H200 (141 GB) |
 | 2. Transcribe | `l4x1` | 1x Nvidia L4 (24 GB) |
 | 3. Speaker similarity | `l4x1` | 1x Nvidia L4 (24 GB) |
+| 4. UTMOS | `l4x1` | 1x Nvidia L4 (24 GB) |
 
 RTFx is measured in stage 1, so every model is generated on the **same** flavor (`h200`); don't override `FLAVOR` in a backend. See the [HF Jobs documentation](https://huggingface.co/docs/huggingface_hub/main/en/guides/jobs#select-the-hardware) for pricing.
 
@@ -157,7 +164,7 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
 | `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |
-| `STAGES` | `generate transcribe sim` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs |
+| `STAGES` | `generate transcribe sim utmos` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs |
 | `VOICE_CLONE` | `false` | Clone the prompt speaker (backends that support both modes) |
 | `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. **Set `SIM_OVERWRITE=true` after regenerating audio**, otherwise old SIM scores are carried over |
 | `ORG_NAME` | (none) | Run the jobs under an organization's namespace |

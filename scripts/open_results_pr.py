@@ -8,10 +8,10 @@ numbers into one row per benchmark file, upserts those rows into
 
 Files written (all in that dataset repo):
     model_info.csv            metadata -- scoring cannot derive it, so it comes from the CLI flags
-    seed_tts.csv              Seed-TTS-Eval, model's own/default voice   (WER, RTFx)
-    seed_tts_voice_clone.csv  Seed-TTS-Eval, cloning each prompt         (WER, RTFx, SIM x2)
-    cv3.csv                   CV3-Eval, model's own/default voice        (WER, RTFx + averages)
-    cv3_voice_clone.csv       CV3-Eval, cloning each prompt              (WER, RTFx, SIM + averages)
+    seed_tts.csv              Seed-TTS-Eval, model's own/default voice   (WER, RTFx, UTMOS)
+    seed_tts_voice_clone.csv  Seed-TTS-Eval, cloning each prompt         (WER, RTFx, SIM x2, UTMOS)
+    cv3.csv                   CV3-Eval, model's own/default voice        (WER, RTFx, UTMOS + averages)
+    cv3_voice_clone.csv       CV3-Eval, cloning each prompt              (WER, RTFx, SIM, UTMOS + averages)
     streaming.csv             time-to-first-audio, CPU and GPU           (TTFA, RTFx at batch 1)
 
 Nothing is pushed unless --open_pr is passed: the default is a dry run that prints the rows.
@@ -126,7 +126,7 @@ STREAMING_SIZE_COLUMN = "Size (B)"
 
 
 # ── Bucket ───────────────────────────────────────────────────────────────────
-def sync_bucket(bucket, model_folder, local_dir, hf_token=None, clean=False):
+def sync_bucket(bucket, model_folder, local_dir, hf_token=None, clean=False, include=None):
     """Sync one model's folder out of the bucket, manifests only (scoring never reads the wavs).
 
     Same call `_wait_and_score` in scripts/tts_jobs_common.sh makes, so either's folder is usable.
@@ -143,7 +143,7 @@ def sync_bucket(bucket, model_folder, local_dir, hf_token=None, clean=False):
     if hf_token:
         env["HF_TOKEN"] = hf_token
     subprocess.run(
-        ["hf", "buckets", "sync", source, dest, "--exclude", "*.wav"],
+        ["hf", "buckets", "sync", source, dest, *(["--include", include] if include else ["--exclude", "*.wav"])],
         check=True,
         env=env,
     )
@@ -344,6 +344,8 @@ def collect_values(target, header_languages, records, scored, scored_xvector):
         values[f"{language} RTFx"] = fmt(result["rtfx"])
         if result.get("sim") is not None:
             values[f"{language} SIM"] = fmt(result["sim"])
+        if result.get("utmos") is not None:
+            values[f"{language} UTMOS"] = fmt(result["utmos"])
         if target.xvector_sim:
             legacy = scored_xvector.get(dataset_id)
             if legacy is not None and legacy.get("sim") is not None:
@@ -446,6 +448,22 @@ def render(published, index, new_row, sort):
     return rewrite_sorted(published, index, new_row) if sort else splice_row(published, index, new_row)
 
 
+def add_utmos_columns(published, languages):
+    """Append `<lang> UTMOS` (+ `avg UTMOS` if the file has averages) to a header without them."""
+    header = published.header
+    if any(column.endswith(" UTMOS") for column in header):
+        return published
+    header = header + [f"{lang} UTMOS" for lang in languages]
+    if any(column.startswith("avg ") for column in header):
+        header.append("avg UTMOS")
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer, lineterminator=published.eol or "\n")
+    writer.writerow(header)
+    for row in published.rows:
+        writer.writerow(row + [""] * (len(header) - len(row)))
+    return Published(buffer.getvalue())
+
+
 def header_languages(header):
     """Languages the file publishes, read off its own header (every one has a `<lang> WER`)."""
     return [
@@ -489,7 +507,7 @@ def recompute_averages(header, row, languages):
     """
     notes = []
     index = {column: i for i, column in enumerate(header)}
-    for metric in ("WER", "RTFx", "SIM"):
+    for metric in ("WER", "RTFx", "SIM", "UTMOS"):
         avg_column = f"avg {metric}"
         if avg_column not in index:
             continue
@@ -585,6 +603,7 @@ def main():
         default=None,
         help="Where to sync results (default: <repo>/results, same place submit_jobs.sh uses).",
     )
+    parser.add_argument("--utmos_bucket", default=None, help="Bucket with the UTMOS sidecars (default: --bucket).")
     parser.add_argument("--skip_sync", action="store_true", help="Score already-downloaded results.")
     parser.add_argument(
         "--clean",
@@ -649,6 +668,8 @@ def main():
                 file=sys.stderr,
             )
             sys.exit(1)
+        if args.utmos_bucket:
+            sync_bucket(args.utmos_bucket, model_folder, local_dir, args.hf_token, include="UTMOS_*.json")
     if not os.path.isdir(model_dir):
         print(f"ERROR: no results directory for {args.model_id}: {model_dir}", file=sys.stderr)
         sys.exit(1)
@@ -732,6 +753,9 @@ def main():
         if not values:
             print(f"\n{target.filename}: nothing scored; skipping.")
             continue
+        if any(column.endswith(" UTMOS") for column in values):
+            published = add_utmos_columns(published, languages)
+            header = published.header
         action, index, new_row = upsert(published, row_name, values, {})
         notes = recompute_averages(header, new_row, languages)
         show_row(header, new_row, action, target.filename, notes)

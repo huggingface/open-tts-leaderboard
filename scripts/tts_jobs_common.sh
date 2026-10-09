@@ -9,10 +9,10 @@
 #   5. calls run_pipeline
 #
 # The pipeline for each (model, dataset) is: stage 1 (generate, backend-specific) → stage 2
-# (transcribe, shared) → stage 3 (SIM, shared; voice-clone models only) → local scoring. Stages
-# run as sequential HF Jobs sharing one bucket; a model's combos run in parallel, models one after
-# another. All eval scripts are base64-injected into the jobs at runtime (the Space images only
-# carry the environment).
+# (transcribe, shared) → stage 3 (SIM, shared; voice-clone models only) → stage 4 (UTMOS, shared)
+# → local scoring. Stages run as sequential HF Jobs sharing one bucket; a model's combos run in
+# parallel, models one after another. All eval scripts are base64-injected into the jobs at runtime
+# (the Space images only carry the environment).
 #
 # Contract — before calling generate_stage()/transcribe_stage()/sim_stage(), run_pipeline sets:
 #   MODEL_ID MODEL_SAFE MODEL_FOLDER MODEL_CFG   (MODEL_CFG = raw config line; parse extras from it)
@@ -46,6 +46,7 @@ FLAVOR="${FLAVOR:-h200}"
 # Stage 2/3 flavors are not timed (WER/SIM are hardware-independent), so a cheaper GPU is fine.
 ASR_FLAVOR="${ASR_FLAVOR:-l4x1}"             # stage 2 flavor
 SIM_FLAVOR="${SIM_FLAVOR:-l4x1}"             # stage 3 flavor
+UTMOS_FLAVOR="${UTMOS_FLAVOR:-l4x1}"         # stage 4 flavor
 MAX_EVAL_SAMPLES="${MAX_EVAL_SAMPLES:--1}"   # -1 = all; set e.g. 8 to smoke-test
 # Restrict a run to some of the backend's DATASET_CONFIGS: space-separated asr_language codes
 # (field 3 of a config line), e.g. ONLY_LANGS="de". Empty (default) runs every configured combo.
@@ -65,13 +66,15 @@ SIM_OVERWRITE="${SIM_OVERWRITE:-false}"
 # Same opt-out for stage 2: transcribe.py skips rows that already have a `pred_text`. Set
 # ASR_OVERWRITE=true with STAGES="transcribe" to re-transcribe the bucket's existing wavs.
 ASR_OVERWRITE="${ASR_OVERWRITE:-false}"
-MAX_AUDIO_SECONDS="${MAX_AUDIO_SECONDS:-30}" # clip cap for ASR + SIM (0 = no cap)
+# Same for stage 4 (forced when `generate` runs).
+UTMOS_OVERWRITE="${UTMOS_OVERWRITE:-false}"
+MAX_AUDIO_SECONDS="${MAX_AUDIO_SECONDS:-30}" # clip cap for ASR + SIM + UTMOS (0 = no cap)
 # Clone each sample's prompt speaker (+ SIM stage) on backends that support it; false = the model's
 # own fixed/default voice. Ignored by fixed-voice backends.
 VOICE_CLONE="${VOICE_CLONE:-false}"
-# Which stages to run (subset of: generate transcribe sim). Skip generate to re-score the bucket's
-# existing wavs, e.g. STAGES="transcribe sim" or STAGES="sim". Precedence (resolved in
-# run_pipeline): user env STAGES > backend DEFAULT_STAGES > "generate transcribe sim".
+# Which stages to run (subset of: generate transcribe sim utmos). Skip generate to re-score the
+# bucket's existing wavs, e.g. STAGES="transcribe sim" or STAGES="sim". Precedence (resolved in
+# run_pipeline): user env STAGES > backend DEFAULT_STAGES > "generate transcribe sim utmos".
 
 # HF Jobs references a Space image as "hf.co/spaces/<id>" and pulls it. NOTE: the Space must be
 # PUBLIC (the jobs backend 500s on a private Space image). Images carry only the environment; all
@@ -125,6 +128,7 @@ inject_run_eval() {
 # Shared scorer-stage injects (transcribe.py / score_similarity.py live in transformers/).
 TRANSCRIBE_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/transcribe.py" /app/transformers/transcribe.py)"
 SIM_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/score_similarity.py" /app/transformers/score_similarity.py)"
+UTMOS_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/score_utmos.py" /app/transformers/score_utmos.py)"
 
 # ── Default hooks (backends override as needed) ─────────────────────────────
 # voice_clone_mode [suffix_prefix] — sets CLONE / MODE_SUFFIX / VOICE_CLONE_FLAG from VOICE_CLONE.
@@ -191,7 +195,7 @@ run_stage() {
     done
 }
 
-# ── Shared stages 2 & 3 (identical for every backend) ───────────────────────
+# ── Shared stages 2-4 (identical for every backend) ─────────────────────────
 transcribe_stage() {
     local ASR_OVERWRITE_FLAG=""
     [[ "${ASR_OVERWRITE}" == "true" ]] && ASR_OVERWRITE_FLAG=" --overwrite"
@@ -213,6 +217,17 @@ sim_stage() {
         bash -c "
             ${SIM_INJECT}
             python /app/transformers/score_similarity.py --manifest_path=${BUCKET_MANIFEST} --sim_backend=${SIM_BACKEND} --batch_size=${SIM_BATCH_SIZE} --max_audio_seconds=${MAX_AUDIO_SECONDS} --device=cuda:0${SIM_OVERWRITE_FLAG}
+        "
+}
+utmos_stage() {
+    local UTMOS_OVERWRITE_FLAG=""
+    { [[ "${UTMOS_OVERWRITE}" == "true" ]] || stage_enabled generate; } && UTMOS_OVERWRITE_FLAG=" --overwrite"
+    hf jobs run \
+        --flavor "${UTMOS_FLAVOR}" --timeout 4h --secrets HF_TOKEN ${NAMESPACE_ARG} \
+        --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${SCORER_IMAGE}" \
+        bash -c "
+            ${UTMOS_INJECT}
+            python /app/transformers/score_utmos.py --manifest_paths ${BUCKET_MANIFEST} --max_audio_seconds=${MAX_AUDIO_SECONDS} --device=cuda:0${UTMOS_OVERWRITE_FLAG}
         "
 }
 
@@ -255,6 +270,8 @@ _wait_and_score() {
         for name in "${MANIFEST_NAMES[@]}"; do
             # -s, not -f: an interrupted download leaves a 0-byte file behind.
             [[ -s "./results/${MODEL_FOLDER}/${name}" ]] || missing+=("${name}")
+            stage_enabled utmos && [[ ! -s "./results/${MODEL_FOLDER}/UTMOS_${name%.jsonl}.json" ]] &&
+                missing+=("UTMOS_${name%.jsonl}.json")
         done
         [[ ${#missing[@]} -eq 0 ]] && break
     done
@@ -303,7 +320,7 @@ score_results('$(pwd)/results/${MODEL_FOLDER}', '${MODEL_ID}', language='${lang}
 
 # ── The orchestrator ─────────────────────────────────────────────────────────
 run_pipeline() {
-    STAGES="${STAGES:-${DEFAULT_STAGES:-generate transcribe sim}}"   # user env > backend > global
+    STAGES="${STAGES:-${DEFAULT_STAGES:-generate transcribe sim utmos}}"   # user env > backend > global
     TTS_IMAGE="hf.co/spaces/${TTS_SPACE}"
     LOG_DIR="${BACKEND_DIR}/job_logs"; mkdir -p "${LOG_DIR}"
     NAMESPACE_ARG=""; [ -n "$ORG_NAME" ] && NAMESPACE_ARG="--namespace ${ORG_NAME}"
@@ -360,6 +377,7 @@ run_pipeline() {
                 stage_enabled generate   && run_stage generate_stage
                 stage_enabled transcribe && run_stage transcribe_stage
                 stage_enabled sim && [[ "${CLONE}" == "true" ]] && run_stage sim_stage
+                stage_enabled utmos      && run_stage utmos_stage
                 true   # ensure subshell exit status is 0 when the last `&&` chain is a skipped stage
             ) > "${CHAIN_LOG}" 2>&1 &
             PIDS+=("$!"); TAGS+=("${DATASET}/${SPLIT}"); CHAIN_LOGS+=("${CHAIN_LOG}")

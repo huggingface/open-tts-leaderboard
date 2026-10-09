@@ -189,6 +189,20 @@ def read_manifest(manifest_path: str):
 SIM_BACKEND_SUFFIXES = ("wavlm_seed_tts",)
 
 
+def read_utmos(manifest_path: str, manifest: list):
+    """Mean UTMOS from the `UTMOS_<stem>.json` sidecar written by transformers/score_utmos.py."""
+    stem = os.path.basename(manifest_path).removesuffix(".jsonl")
+    for suffix in SIM_BACKEND_SUFFIXES:
+        stem = stem.removesuffix(f"_{suffix}")
+    sidecar = os.path.join(os.path.dirname(manifest_path), f"UTMOS_{stem}.json")
+    if not os.path.exists(sidecar):
+        return None
+    with open(sidecar, encoding="utf-8") as f:
+        scores = json.load(f)["scores"]
+    vals = [v for v in (scores.get(d.get("audio_filepath")) for d in manifest) if isinstance(v, float)]
+    return round(sum(vals) / len(vals), 3) if vals else None
+
+
 def score_results(directory: str, model_id: str = None, multilingual: bool = None, csv_only: bool = False, language: str = "en", manifests: list = None, sim_backend: str = "wavlm_seed_tts"):
     """
     Scores all result files in a directory and returns a composite score over all evaluated datasets.
@@ -337,6 +351,7 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
         else:
             sims = [datum["sim"] for datum in manifest if isinstance(datum.get("sim"), (int, float))]
         sim = round(100 * sum(sims) / len(sims), 2) if sims else None
+        utmos = read_utmos(result_file, manifest)
 
         if use_cer:
             # Per-character alignment (merge_compounds is moot). The headline CJK number is the
@@ -389,7 +404,7 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
         extra = {"ins": total_ins, "del": total_del, "sub": total_sub}
         # `wer` holds the headline error rate; `metric` says whether it is a WER or a CER. For CJK
         # it is the lenient CER, with `cer_unnormalized` the seed-tts-eval-comparable number.
-        results[result_key] = {"wer": wer, "metric": "CER" if use_cer else "WER", "cer_unnormalized": cer_unnormalized, "audio_length": audio_length, "inference_time": inference_time, "rtfx": rtfx, "sim": sim, **extra}
+        results[result_key] = {"wer": wer, "metric": "CER" if use_cer else "WER", "cer_unnormalized": cer_unnormalized, "audio_length": audio_length, "inference_time": inference_time, "rtfx": rtfx, "sim": sim, "utmos": utmos, **extra}
 
     # Name the manifests whose SIM was dropped, even under csv_only, so a blank SIM is explained.
     if stale_sim_files:
@@ -413,6 +428,8 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
                 metrics += f", RTFx = {v['rtfx']:0.2f}"
             if v.get("sim") is not None:
                 metrics += f", SIM = {v['sim']:0.2f} %"
+            if v.get("utmos") is not None:
+                metrics += f", UTMOS = {v['utmos']:0.3f}"
             print(metrics)
 
     # composite WER should be computed over all datasets and with the same key
@@ -421,6 +438,8 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
     composite_inference_time = defaultdict(float)
     composite_sim = defaultdict(float)
     count_sim_entries = defaultdict(int)
+    composite_utmos = defaultdict(float)
+    count_utmos_entries = defaultdict(int)
     count_entries = defaultdict(int)
     composite_metrics = defaultdict(set)
     for k, v in results.items():
@@ -434,6 +453,9 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
         if v.get("sim") is not None:
             composite_sim[key] += v["sim"]
             count_sim_entries[key] += 1
+        if v.get("utmos") is not None:
+            composite_utmos[key] += v["utmos"]
+            count_utmos_entries[key] += 1
         count_entries[key] += 1
 
     # normalize scores & print
@@ -453,6 +475,9 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
         for k in composite_sim:
             sim = composite_sim[k] / count_sim_entries[k]
             print(f"{k}: SIM = {sim:0.2f} %")
+        for k in composite_utmos:
+            utmos = composite_utmos[k] / count_utmos_entries[k]
+            print(f"{k}: UTMOS = {utmos:0.3f}")
         print("*" * 80)
 
     return composite_wer, results
