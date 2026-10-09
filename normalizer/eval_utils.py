@@ -27,6 +27,8 @@ _CJK_PATTERN = re.compile(
 
 # Language codes that must be scored with CER. The single source of truth for the CJK list.
 CJK_LANGUAGES = {"zh", "yue", "cmn", "ja", "jpn", "ko", "kor"}
+# Other scripts without word delimiters: ml_normalizer, then scored per character (CER).
+CHAR_LANGUAGES = {"th"}
 
 
 def is_cjk_language(language: str) -> bool:
@@ -313,6 +315,7 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
 
         # CJK is scored per character (CER); detected from `language` or the reference text.
         use_cer = is_cjk_language(language) or _is_mostly_cjk(raw_references)
+        per_char = not use_cer and language in CHAR_LANGUAGES
 
         if use_cer:
             # `language` also gates the Chinese-only folds.
@@ -370,9 +373,13 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
             # Use kaldialign batch_error_rate with merge_compounds=True so that
             # split compounds (e.g. "white paper" vs "whitepaper") count as
             # 0 errors in either direction.
-            refs_split  = [tuple(r.split()) for r in references]
-            preds_split = [tuple(p.split()) for p in predictions]
-            r = batch_error_rate(refs_split, preds_split, merge_compounds=True)
+            if per_char:
+                refs_split  = [tuple(r.replace(" ", "")) for r in references]
+                preds_split = [tuple(p.replace(" ", "")) for p in predictions]
+            else:
+                refs_split  = [tuple(r.split()) for r in references]
+                preds_split = [tuple(p.split()) for p in predictions]
+            r = batch_error_rate(refs_split, preds_split, merge_compounds=not per_char)
             total_ins, total_del, total_sub = r["ins"], r["del"], r["sub"]
             wer = r["err_rate"]
 
@@ -389,7 +396,7 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
         extra = {"ins": total_ins, "del": total_del, "sub": total_sub}
         # `wer` holds the headline error rate; `metric` says whether it is a WER or a CER. For CJK
         # it is the lenient CER, with `cer_unnormalized` the seed-tts-eval-comparable number.
-        results[result_key] = {"wer": wer, "metric": "CER" if use_cer else "WER", "cer_unnormalized": cer_unnormalized, "audio_length": audio_length, "inference_time": inference_time, "rtfx": rtfx, "sim": sim, **extra}
+        results[result_key] = {"wer": wer, "metric": "CER" if use_cer or per_char else "WER", "cer_unnormalized": cer_unnormalized, "audio_length": audio_length, "inference_time": inference_time, "rtfx": rtfx, "sim": sim, **extra}
 
     # Name the manifests whose SIM was dropped, even under csv_only, so a blank SIM is explained.
     if stale_sim_files:

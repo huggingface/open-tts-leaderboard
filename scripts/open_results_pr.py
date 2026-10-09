@@ -12,6 +12,8 @@ Files written (all in that dataset repo):
     seed_tts_voice_clone.csv  Seed-TTS-Eval, cloning each prompt         (WER, RTFx, SIM x2)
     cv3.csv                   CV3-Eval, model's own/default voice        (WER, RTFx + averages)
     cv3_voice_clone.csv       CV3-Eval, cloning each prompt              (WER, RTFx, SIM + averages)
+    minimax.csv               MiniMax multilingual, own/default voice    (WER, RTFx + averages)
+    minimax_voice_clone.csv   MiniMax multilingual, cloning each prompt  (WER, RTFx, SIM + averages)
     streaming.csv             time-to-first-audio, CPU and GPU           (TTFA, RTFx at batch 1)
 
 Nothing is pushed unless --open_pr is passed: the default is a dry run that prints the rows.
@@ -109,6 +111,8 @@ TARGETS = {
     ),
     "cv3": Target("cv3.csv", "cv3_eval_zero_shot_", voice_clone=False),
     "cv3_voice_clone": Target("cv3_voice_clone.csv", "cv3_eval_zero_shot_", voice_clone=True),
+    "minimax": Target("minimax.csv", "minimax_eval_tts_", voice_clone=False),
+    "minimax_voice_clone": Target("minimax_voice_clone.csv", "minimax_eval_tts_", voice_clone=True),
 }
 
 # streaming.csv is filled from the TTFA sidecars rather than by scoring, so it is not a Target.

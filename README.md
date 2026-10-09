@@ -7,6 +7,7 @@ This repository contains the code for the Open TTS Leaderboard. The leaderboard 
 The following datasets are used in the Open TTS Leaderboard:
 1. [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval) (`tts` config): `en` (English) and `zh` (Chinese).
 2. [CV3 Eval](https://github.com/QwenAudio/CV3-Eval): `en`, `zh`, `fr` (French), `es` (Spanish), `ja` (Japanese), `ko` (Korean), `it` (Italian), `de` (German), and `ru` (Russian) (`zero_shot` config, 500 samples per language).
+3. [MiniMax Multilingual](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) (`tts` config): 100 samples x 24 languages. (Thai is scored with CER; Ukrainian is not supported by ASR)
 
 While human preference is the ultimate decider, **arenas cannot scale to keep up with the pace of TTS releases**. To this end, we use objective metrics to evaluate models on complementary aspects of performance:
 
@@ -69,8 +70,14 @@ Unfortunately the licenses of [Seed TTS](https://github.com/BytedanceSpeech/seed
 (tts_leaderboard) git clone git@github.com:QwenAudio/CV3-Eval.git
 # -- upload to your account on HF
 (tts_leaderboard) python scripts/prepare_cv3_eval.py YOUR_USERNAME/cv3_eval
+
+# minimax eval
+# -- download
+(tts_leaderboard) hf download MiniMaxAI/TTS-Multilingual-Test-Set --repo-type dataset --local-dir minimax_testset
+# -- upload to your account on HF
+(tts_leaderboard) python scripts/prepare_minimax_eval.py YOUR_USERNAME/minimax_eval
 ```
-Keep the repo names (`seed_tts_eval`, `cv3_eval`) as above, so that `DATASET_NAMESPACE=YOUR_USERNAME` points every job at your copies.
+Keep the repo names (`seed_tts_eval`, `cv3_eval`, `minimax_eval`) as above, so that `DATASET_NAMESPACE=YOUR_USERNAME` points every job at your copies.
 
 
 #### 4. Smoke test
@@ -153,7 +160,7 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATASET_NAMESPACE` | `bezzam` | Namespace holding your private `seed_tts_eval` / `cv3_eval` copies |
+| `DATASET_NAMESPACE` | `bezzam` | Namespace holding your private `seed_tts_eval` / `cv3_eval` / `minimax_eval` copies |
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
 | `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |
