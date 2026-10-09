@@ -270,6 +270,8 @@ _wait_and_score() {
         for name in "${MANIFEST_NAMES[@]}"; do
             # -s, not -f: an interrupted download leaves a 0-byte file behind.
             [[ -s "./results/${MODEL_FOLDER}/${name}" ]] || missing+=("${name}")
+            stage_enabled utmos && [[ ! -s "./results/${MODEL_FOLDER}/UTMOS_${name%.jsonl}.json" ]] &&
+                missing+=("UTMOS_${name%.jsonl}.json")
         done
         [[ ${#missing[@]} -eq 0 ]] && break
     done

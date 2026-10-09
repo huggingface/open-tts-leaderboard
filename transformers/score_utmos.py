@@ -12,8 +12,11 @@ import os
 import torch
 from transformers.audio_utils import load_audio
 
-SPEECHMOS_REPO = "tarepan/SpeechMOS:v1.2.0"
+# v1.2.0, pinned by commit; the checkpoint is pinned by digest.
+SPEECHMOS_REPO = "tarepan/SpeechMOS:ed25eacbfa42b99156c36ebec67a733b5dbb9b79"
 SPEECHMOS_ENTRY = "utmos22_strong"
+CKPT_URL = "https://github.com/tarepan/SpeechMOS/releases/download/v1.0.0/utmos22_strong_step7459_v1.pt"
+CKPT_SHA256 = "38aa51ab79e2a4e09a1449758a4b37e9cbb2e8235a49662a732d33a9ba1e9bff"
 SAMPLING_RATE = 16_000
 MIN_SAMPLES = SAMPLING_RATE // 10  # shorter clips crash the conv front end
 
@@ -33,7 +36,7 @@ def score_manifest(model, manifest_path, args):
 
     def save():
         with open(out_path, "w", encoding="utf-8") as f:
-            json.dump({"utmos_model": f"{SPEECHMOS_ENTRY} ({SPEECHMOS_REPO})", "scores": scores}, f)
+            json.dump({"utmos_model": f"{SPEECHMOS_ENTRY} ({CKPT_SHA256[:12]})", "scores": scores}, f)
 
     todo = [e["audio_filepath"] for e in entries if e.get("audio_filepath") and e["audio_filepath"] not in scores]
     print(f"{manifest_path}: {len(todo)}/{len(entries)} rows to score -> {out_path}")
@@ -60,7 +63,13 @@ def score_manifest(model, manifest_path, args):
 
 
 def main(args):
-    model = torch.hub.load(SPEECHMOS_REPO, SPEECHMOS_ENTRY, trust_repo=True).to(args.device).eval()
+    model = torch.hub.load(SPEECHMOS_REPO, SPEECHMOS_ENTRY, trust_repo=True, pretrained=False)
+    ckpt = os.path.join(torch.hub.get_dir(), "checkpoints", f"{CKPT_SHA256}.pt")
+    if not os.path.exists(ckpt):
+        os.makedirs(os.path.dirname(ckpt), exist_ok=True)
+        torch.hub.download_url_to_file(CKPT_URL, ckpt, hash_prefix=CKPT_SHA256)
+    model.load_state_dict(torch.load(ckpt, map_location="cpu", weights_only=True))
+    model = model.to(args.device).eval()
     for manifest_path in args.manifest_paths:
         score_manifest(model, manifest_path, args)
 
