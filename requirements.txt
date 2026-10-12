@@ -4,6 +4,7 @@ datasets<4.0
 soundfile
 librosa
 requests
-num2words
 kaldialign
 zhconv
+# TODO before merge: switch to asr-normalizer==0.1.0 once on PyPI
+asr-normalizer @ git+https://github.com/MatiasVoldbyDrejer/asr-normalizer@v0.1.0

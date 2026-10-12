@@ -3,10 +3,12 @@ import glob
 import json
 import re
 import unicodedata
-from difflib import SequenceMatcher
 
 from collections import defaultdict
 from kaldialign import batch_error_rate
+
+# Shared with the Open ASR Leaderboard; imported so `eval_utils.normalize_compound_pairs` keeps working.
+from asr_normalizer.pairs import normalize_compound_pairs  # noqa: F401
 
 
 # ── Chinese / CJK scoring (CER instead of WER) ────────────────────────────────
@@ -136,39 +138,6 @@ def _is_mostly_cjk(texts, threshold: float = 0.5) -> bool:
     if not sample:
         return False
     return sum(1 for t in sample if _CJK_PATTERN.search(t)) / len(sample) >= threshold
-
-
-def normalize_compound_pairs(refs, preds):
-    """Align compound word boundaries between ref/pred pairs.
-
-    When a mismatch region has identical characters ignoring whitespace,
-    normalize both sides to the joined form.
-    """
-    new_refs, new_preds = [], []
-    for ref_text, pred_text in zip(refs, preds):
-        ref_words = ref_text.split()
-        pred_words = pred_text.split()
-
-        sm = SequenceMatcher(None, ref_words, pred_words)
-        new_rw, new_pw = [], []
-
-        for tag, i1, i2, j1, j2 in sm.get_opcodes():
-            if tag == "equal":
-                new_rw.extend(ref_words[i1:i2])
-                new_pw.extend(pred_words[j1:j2])
-            else:
-                rc = "".join(ref_words[i1:i2])
-                pc = "".join(pred_words[j1:j2])
-                if rc == pc:
-                    new_rw.append(rc)
-                    new_pw.append(pc)
-                else:
-                    new_rw.extend(ref_words[i1:i2])
-                    new_pw.extend(pred_words[j1:j2])
-
-        new_refs.append(" ".join(new_rw))
-        new_preds.append(" ".join(new_pw))
-    return new_refs, new_preds
 
 
 def read_manifest(manifest_path: str):

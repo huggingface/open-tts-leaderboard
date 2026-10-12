@@ -133,7 +133,7 @@ flowchart LR
 2. **Transcribe** (`transcribe`): [transformers/transcribe.py](transformers/transcribe.py) transcribes the wavs with [Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf), using the split's language as a hint.
 3. **Speaker similarity** (`sim`, voice cloning only): [transformers/score_similarity.py](transformers/score_similarity.py) compares each generated clip with its reference prompt, using the [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval#metrics) speaker-verification model (WavLM-large + ECAPA-TDNN, mirrored [here](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval)).
 4. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
-   - **WER** after text normalization (CER for `zh`, `ja`, `ko`)
+   - **WER** after text normalization with the [`asr-normalizer`](https://github.com/MatiasVoldbyDrejer/asr-normalizer) package, the same normalizer as the [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard) (CER for `zh`, `ja`, `ko`, normalized by `cjk_normalizer` in [normalizer/eval_utils.py](normalizer/eval_utils.py))
    - **RTFx**: total audio duration divided by total generation time, measured in stage 1
    - **SIM**: mean speaker similarity, for voice cloning only
 
