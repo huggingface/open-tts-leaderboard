@@ -108,41 +108,9 @@
         "del": 23,
         "sub": 107
       },
-      "dataset_revision": "12cfc249c8a8a3bf058bd109d3a5ee8fd68d3b38",
-      "private_bucket": "ydqmkkx/gibbstts-cv3-en-compiled-pad-20261012",
-      "jobs": {
-        "generate": {
-          "id": "6acc9248fee2c900701a370a",
-          "stage": "generate",
-          "status": "COMPLETED",
-          "hardware": "h200",
-          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9248fee2c900701a370a",
-          "created_at": "2026-10-12 07:54:49.011000+00:00",
-          "started_at": "2026-10-12 07:54:54.124000+00:00",
-          "finished_at": "2026-10-12 08:02:45.102000+00:00",
-          "durations": {
-            "scheduling_secs": 5,
-            "running_secs": 470,
-            "total_secs": 476
-          }
-        },
-        "score": {
-          "id": "6acc9432fee2c900701a3851",
-          "stage": "score",
-          "status": "COMPLETED",
-          "hardware": "l4x1",
-          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9432fee2c900701a3851",
-          "created_at": "2026-10-12 08:02:58.351000+00:00",
-          "started_at": "2026-10-12 08:04:15.049000+00:00",
-          "finished_at": "2026-10-12 08:16:02.945000+00:00",
-          "durations": {
-            "scheduling_secs": 76,
-            "running_secs": 707,
-            "total_secs": 784
-          }
-        }
-      },
-      "timed_recompile_backend_attempts": 0
+      "timed_recompile_backend_attempts": 0,
+      "generation_hardware": "h200",
+      "scoring_hardware": "l4x1"
     },
     {
       "dataset": "CV3/zh",
@@ -171,41 +139,9 @@
         "del": 19,
         "sub": 272
       },
-      "dataset_revision": "12cfc249c8a8a3bf058bd109d3a5ee8fd68d3b38",
-      "private_bucket": "ydqmkkx/gibbstts-cv3-zh-compiled-pad-20261012",
-      "jobs": {
-        "generate": {
-          "id": "6acc9d56095c57808932a117",
-          "stage": "generate",
-          "status": "COMPLETED",
-          "hardware": "h200",
-          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9d56095c57808932a117",
-          "created_at": "2026-10-12 08:41:58.381000+00:00",
-          "started_at": "2026-10-12 08:42:04.490000+00:00",
-          "finished_at": "2026-10-12 08:50:12.363000+00:00",
-          "durations": {
-            "scheduling_secs": 6,
-            "running_secs": 487,
-            "total_secs": 493
-          }
-        },
-        "score": {
-          "id": "6acc9f47fee2c900701a402e",
-          "stage": "score",
-          "status": "COMPLETED",
-          "hardware": "l4x1",
-          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9f47fee2c900701a402e",
-          "created_at": "2026-10-12 08:50:15.189000+00:00",
-          "started_at": "2026-10-12 08:51:30.386000+00:00",
-          "finished_at": "2026-10-12 08:56:07.207000+00:00",
-          "durations": {
-            "scheduling_secs": 75,
-            "running_secs": 276,
-            "total_secs": 352
-          }
-        }
-      },
-      "timed_recompile_backend_attempts": 0
+      "timed_recompile_backend_attempts": 0,
+      "generation_hardware": "h200",
+      "scoring_hardware": "l4x1"
     },
     {
       "dataset": "Seed-TTS/en",
@@ -234,41 +170,9 @@
         "del": 7,
         "sub": 90
       },
-      "dataset_revision": "f9759893ea663aacdbceebb9b1aaa01663ba3969",
-      "private_bucket": "ydqmkkx/gibbstts-seed-en-compiled-pad-20261012",
-      "jobs": {
-        "generate": {
-          "id": "6acc9d57095c57808932a119",
-          "stage": "generate",
-          "status": "COMPLETED",
-          "hardware": "h200",
-          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9d57095c57808932a119",
-          "created_at": "2026-10-12 08:41:59.355000+00:00",
-          "started_at": "2026-10-12 08:42:04.419000+00:00",
-          "finished_at": "2026-10-12 08:52:58.002000+00:00",
-          "durations": {
-            "scheduling_secs": 5,
-            "running_secs": 653,
-            "total_secs": 658
-          }
-        },
-        "score": {
-          "id": "6acc9ff4fee2c900701a409e",
-          "stage": "score",
-          "status": "COMPLETED",
-          "hardware": "l4x1",
-          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9ff4fee2c900701a409e",
-          "created_at": "2026-10-12 08:53:08.758000+00:00",
-          "started_at": "2026-10-12 08:56:22.446000+00:00",
-          "finished_at": "2026-10-12 09:03:06.595000+00:00",
-          "durations": {
-            "scheduling_secs": 193,
-            "running_secs": 404,
-            "total_secs": 597
-          }
-        }
-      },
-      "timed_recompile_backend_attempts": 0
+      "timed_recompile_backend_attempts": 0,
+      "generation_hardware": "h200",
+      "scoring_hardware": "l4x1"
     },
     {
       "dataset": "Seed-TTS/zh",
@@ -297,47 +201,14 @@
         "del": 21,
         "sub": 294
       },
-      "dataset_revision": "f9759893ea663aacdbceebb9b1aaa01663ba3969",
-      "private_bucket": "ydqmkkx/gibbstts-seed-zh-compiled-pad-20261012",
-      "jobs": {
-        "generate": {
-          "id": "6acca73b095c57808932a7a1",
-          "stage": "generate",
-          "status": "COMPLETED",
-          "hardware": "h200",
-          "url": "https://huggingface.co/jobs/ydqmkkx/6acca73b095c57808932a7a1",
-          "created_at": "2026-10-12 09:24:11.942000+00:00",
-          "started_at": "2026-10-12 09:24:17.843000+00:00",
-          "finished_at": "2026-10-12 09:42:28.228000+00:00",
-          "durations": {
-            "scheduling_secs": 5,
-            "running_secs": 1090,
-            "total_secs": 1096
-          }
-        },
-        "score": {
-          "id": "6accab87fee2c900701a4a16",
-          "stage": "score",
-          "status": "COMPLETED",
-          "hardware": "l4x1",
-          "url": "https://huggingface.co/jobs/ydqmkkx/6accab87fee2c900701a4a16",
-          "created_at": "2026-10-12 09:42:31.944000+00:00",
-          "started_at": "2026-10-12 09:44:34.443000+00:00",
-          "finished_at": "2026-10-12 09:55:57.299000+00:00",
-          "durations": {
-            "scheduling_secs": 122,
-            "running_secs": 682,
-            "total_secs": 805
-          }
-        }
-      },
-      "timed_recompile_backend_attempts": 0
+      "timed_recompile_backend_attempts": 0,
+      "generation_hardware": "h200",
+      "scoring_hardware": "l4x1"
     }
   ],
   "production_entry_smoke": {
     "samples": 8,
     "status": "COMPLETED",
-    "job_url": "https://huggingface.co/jobs/ydqmkkx/6accb4b1fee2c900701a534e",
     "hardware": "h200",
     "execution_batch_size": 32,
     "dummy_rows": 24,

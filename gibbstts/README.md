@@ -43,7 +43,7 @@ Generation uses H200; shared Qwen3-ASR and WavLM-Seed-TTS scoring use L4. To re-
 
 ## Completed evaluation
 
-All 4108 real rows were generated, scored and checked against official IDs/text/order and exact baseline reference PCM. Eight full GPU jobs completed. The native inference modules are unchanged from those runs; aggregate metrics, data revisions and job links are in `results.json`. Benchmark text and reference audio remain private.
+All 4108 real rows were generated, scored and checked against official IDs/text/order and exact baseline reference PCM. Eight full GPU jobs completed. The native inference modules are unchanged from those runs; aggregate metrics and pinned generation settings are in `results.json`. Benchmark text and reference audio remain private.
 
 | Dataset | N | WER/CER | RTFx | SIM |
 |---|---:|---:|---:|---:|
@@ -62,6 +62,6 @@ bash -n gibbstts/submit_jobs.sh scripts/tts_jobs_common.sh
 PYTHONPATH=scripts python gibbstts/run_eval.py --help
 ```
 
-Offline tests use real WAV/HF Audio/manifest I/O with a fake batch generator/CUDA interface. They check real-only timing allocation, padded-tail counts, whole-batch repair and actual H200 job-command generation. They are not CUDA measurements. The [eight-row H200 production-entry smoke](https://huggingface.co/jobs/ydqmkkx/6accb4b1fee2c900701a534e) passed: 8 real outputs, execution batch32, 24 dummy rows discarded, no timed recompilation, and byte-identical completed resume. The private smoke results are separate from the full evaluation.
+Offline tests use real WAV/HF Audio/manifest I/O with a fake batch generator/CUDA interface. They check real-only timing allocation, padded-tail counts, whole-batch repair and actual H200 job-command generation. They are not CUDA measurements. The eight-row H200 production-entry smoke passed: 8 real outputs, execution batch32, 24 dummy rows discarded, no timed recompilation, and byte-identical completed resume. The private smoke results are separate from the full evaluation.
 
 For CPU development use `--device=cpu --precision=fp32 --no-compile`; CPU/other-GPU timing is not official leaderboard timing.
