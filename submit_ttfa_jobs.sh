@@ -157,11 +157,16 @@ TTFA_TARGETS=(
     # The same models through 0xShug0/audio.cpp (ggml C++), served by audiocpp_server's SSE
     # streaming endpoint (see audiocpp/run_eval.py).
     # The Space's image tag is per device:  TTFA_DEVICE=cpu AUDIOCPP_SPACE=bezzam/evals-audiocpp-cpu ...
+    "audiocpp-qwen3tts|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice|--language=${TTFA_LANG}|audiocpp"
+    "audiocpp-higgs|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|bosonai/higgs-tts-3-4b||audiocpp"
     "audiocpp-voxcpm2|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|openbmb/VoxCPM2||audiocpp"
     "audiocpp-supertonic|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|Supertone/supertonic-3|--language=${TTFA_LANG}|audiocpp"
     "audiocpp-pocket-tts|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|kyutai/pocket-tts||audiocpp"
     "audiocpp-breeze-tts|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|BreezeBlue/Breeze-TTS-2|--language=${TTFA_LANG}|audiocpp"
     "audiocpp-omnivoice|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|k2-fsa/OmniVoice|--language=${TTFA_LANG}|audiocpp"
+    "audiocpp-fish-s2-pro|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|fishaudio/s2-pro||audiocpp"
+    "audiocpp-vibevoice|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|microsoft/VibeVoice-1.5B||audiocpp"
+    "audiocpp-voxtral-tts|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|mistralai/Voxtral-4B-TTS-2603||audiocpp"
     # Streaming models that are only on the TTFA tab (no WER/RTFx backend).
     "audiocpp-kugelaudio|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|kugelaudio/kugelaudio-0-open||audiocpp"
     "audiocpp-neutts-2e|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|neuphonic/neutts-2e||audiocpp"
