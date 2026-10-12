@@ -1,0 +1,347 @@
+{
+  "model": "ydqmkkx/GibbsTTS",
+  "configuration": "BF16 DiT autocast + native batch32 + Inductor/default/fullgraph/dynamic + tail padding",
+  "verified_samples": 4108,
+  "composites": {
+    "en": {
+      "new": {
+        "samples": 1588,
+        "error": 1.895,
+        "sim": 69.805,
+        "rtfx": 25.70624798508245,
+        "rtf": 0.038901048514754406,
+        "audio_seconds": 7920.08,
+        "inference_seconds": 308.09941632073605
+      },
+      "previous_uncompiled_bf16": {
+        "samples": 1588,
+        "error": 2.095,
+        "sim": 69.55000000000001,
+        "rtfx": 15.1409026788033,
+        "rtf": 0.06604626033294321,
+        "audio_seconds": 7920.08,
+        "inference_seconds": 523.0916655377368
+      },
+      "original_fp32": {
+        "samples": 1588,
+        "error": 2.06,
+        "sim": 69.84,
+        "rtfx": 5.302130077977102,
+        "rtf": 0.18860344527449344,
+        "audio_seconds": 7920.08,
+        "inference_seconds": 1493.75437484961
+      }
+    },
+    "zh": {
+      "new": {
+        "samples": 2520,
+        "error": 1.635,
+        "sim": 77.35499999999999,
+        "rtfx": 38.10918475808963,
+        "rtf": 0.026240393394606133,
+        "audio_seconds": 15773.960000000001,
+        "inference_seconds": 413.9149157907814
+      },
+      "previous_uncompiled_bf16": {
+        "samples": 2520,
+        "error": 1.56,
+        "sim": 77.4,
+        "rtfx": 21.535768904448503,
+        "rtf": 0.04643437642913397,
+        "audio_seconds": 15773.960000000001,
+        "inference_seconds": 732.4539964181022
+      },
+      "original_fp32": {
+        "samples": 2520,
+        "error": 1.645,
+        "sim": 77.305,
+        "rtfx": 6.377975193388047,
+        "rtf": 0.15678957187489304,
+        "audio_seconds": 15773.960000000001,
+        "inference_seconds": 2473.192435171688
+      }
+    }
+  },
+  "generation_settings": {
+    "source_revision": "2af61715fe832b8dbef909b545090a56056428a3",
+    "weight_revision": "a31945f20bf84498af41508ff3b126ea7f53b5c2",
+    "asr_revision": "bcd2b5b7f32b480ab5790554cfa8347f246a14f3",
+    "steps": 32,
+    "cfg": 2.5,
+    "rescale_cfg": 0.75,
+    "temperature": 0.6,
+    "top_p": 1.0,
+    "speed": 1.0,
+    "seed": 42,
+    "batch_size": 32,
+    "precision": "bf16",
+    "compiler": "inductor/default/fullgraph/dynamic",
+    "rope_cache_positions": 16384,
+    "warmup_calls": 2,
+    "tail_padding": true
+  },
+  "datasets": [
+    {
+      "dataset": "CV3/en",
+      "samples": 500,
+      "metrics": {
+        "wer": 2.87,
+        "metric": "WER",
+        "cer_unnormalized": null,
+        "audio_length": 3356.84,
+        "inference_time": 129.08076367987087,
+        "rtfx": 26.0057,
+        "sim": 66.75,
+        "ins": 96,
+        "del": 18,
+        "sub": 95
+      },
+      "previous_uncompiled_bf16": {
+        "wer": 3.29,
+        "metric": "WER",
+        "cer_unnormalized": null,
+        "audio_length": 3356.84,
+        "inference_time": 215.3378259537858,
+        "rtfx": 15.5887,
+        "sim": 66.43,
+        "ins": 110,
+        "del": 23,
+        "sub": 107
+      },
+      "dataset_revision": "12cfc249c8a8a3bf058bd109d3a5ee8fd68d3b38",
+      "private_bucket": "ydqmkkx/gibbstts-cv3-en-compiled-pad-20261012",
+      "jobs": {
+        "generate": {
+          "id": "6acc9248fee2c900701a370a",
+          "stage": "generate",
+          "status": "COMPLETED",
+          "hardware": "h200",
+          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9248fee2c900701a370a",
+          "created_at": "2026-10-12 07:54:49.011000+00:00",
+          "started_at": "2026-10-12 07:54:54.124000+00:00",
+          "finished_at": "2026-10-12 08:02:45.102000+00:00",
+          "durations": {
+            "scheduling_secs": 5,
+            "running_secs": 470,
+            "total_secs": 476
+          }
+        },
+        "score": {
+          "id": "6acc9432fee2c900701a3851",
+          "stage": "score",
+          "status": "COMPLETED",
+          "hardware": "l4x1",
+          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9432fee2c900701a3851",
+          "created_at": "2026-10-12 08:02:58.351000+00:00",
+          "started_at": "2026-10-12 08:04:15.049000+00:00",
+          "finished_at": "2026-10-12 08:16:02.945000+00:00",
+          "durations": {
+            "scheduling_secs": 76,
+            "running_secs": 707,
+            "total_secs": 784
+          }
+        }
+      },
+      "timed_recompile_backend_attempts": 0
+    },
+    {
+      "dataset": "CV3/zh",
+      "samples": 500,
+      "metrics": {
+        "wer": 2.5,
+        "metric": "CER",
+        "cer_unnormalized": 2.61,
+        "audio_length": 4128.52,
+        "inference_time": 132.31961930700345,
+        "rtfx": 31.2011,
+        "sim": 77.44,
+        "ins": 64,
+        "del": 10,
+        "sub": 291
+      },
+      "previous_uncompiled_bf16": {
+        "wer": 2.34,
+        "metric": "CER",
+        "cer_unnormalized": 2.45,
+        "audio_length": 4128.52,
+        "inference_time": 225.65812677290523,
+        "rtfx": 18.2955,
+        "sim": 77.66,
+        "ins": 51,
+        "del": 19,
+        "sub": 272
+      },
+      "dataset_revision": "12cfc249c8a8a3bf058bd109d3a5ee8fd68d3b38",
+      "private_bucket": "ydqmkkx/gibbstts-cv3-zh-compiled-pad-20261012",
+      "jobs": {
+        "generate": {
+          "id": "6acc9d56095c57808932a117",
+          "stage": "generate",
+          "status": "COMPLETED",
+          "hardware": "h200",
+          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9d56095c57808932a117",
+          "created_at": "2026-10-12 08:41:58.381000+00:00",
+          "started_at": "2026-10-12 08:42:04.490000+00:00",
+          "finished_at": "2026-10-12 08:50:12.363000+00:00",
+          "durations": {
+            "scheduling_secs": 6,
+            "running_secs": 487,
+            "total_secs": 493
+          }
+        },
+        "score": {
+          "id": "6acc9f47fee2c900701a402e",
+          "stage": "score",
+          "status": "COMPLETED",
+          "hardware": "l4x1",
+          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9f47fee2c900701a402e",
+          "created_at": "2026-10-12 08:50:15.189000+00:00",
+          "started_at": "2026-10-12 08:51:30.386000+00:00",
+          "finished_at": "2026-10-12 08:56:07.207000+00:00",
+          "durations": {
+            "scheduling_secs": 75,
+            "running_secs": 276,
+            "total_secs": 352
+          }
+        }
+      },
+      "timed_recompile_backend_attempts": 0
+    },
+    {
+      "dataset": "Seed-TTS/en",
+      "samples": 1088,
+      "metrics": {
+        "wer": 0.92,
+        "metric": "WER",
+        "cer_unnormalized": null,
+        "audio_length": 4563.24,
+        "inference_time": 179.01865264086518,
+        "rtfx": 25.4903,
+        "sim": 72.86,
+        "ins": 11,
+        "del": 9,
+        "sub": 90
+      },
+      "previous_uncompiled_bf16": {
+        "wer": 0.9,
+        "metric": "WER",
+        "cer_unnormalized": null,
+        "audio_length": 4563.24,
+        "inference_time": 307.75383958395105,
+        "rtfx": 14.8276,
+        "sim": 72.67,
+        "ins": 10,
+        "del": 7,
+        "sub": 90
+      },
+      "dataset_revision": "f9759893ea663aacdbceebb9b1aaa01663ba3969",
+      "private_bucket": "ydqmkkx/gibbstts-seed-en-compiled-pad-20261012",
+      "jobs": {
+        "generate": {
+          "id": "6acc9d57095c57808932a119",
+          "stage": "generate",
+          "status": "COMPLETED",
+          "hardware": "h200",
+          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9d57095c57808932a119",
+          "created_at": "2026-10-12 08:41:59.355000+00:00",
+          "started_at": "2026-10-12 08:42:04.419000+00:00",
+          "finished_at": "2026-10-12 08:52:58.002000+00:00",
+          "durations": {
+            "scheduling_secs": 5,
+            "running_secs": 653,
+            "total_secs": 658
+          }
+        },
+        "score": {
+          "id": "6acc9ff4fee2c900701a409e",
+          "stage": "score",
+          "status": "COMPLETED",
+          "hardware": "l4x1",
+          "url": "https://huggingface.co/jobs/ydqmkkx/6acc9ff4fee2c900701a409e",
+          "created_at": "2026-10-12 08:53:08.758000+00:00",
+          "started_at": "2026-10-12 08:56:22.446000+00:00",
+          "finished_at": "2026-10-12 09:03:06.595000+00:00",
+          "durations": {
+            "scheduling_secs": 193,
+            "running_secs": 404,
+            "total_secs": 597
+          }
+        }
+      },
+      "timed_recompile_backend_attempts": 0
+    },
+    {
+      "dataset": "Seed-TTS/zh",
+      "samples": 2020,
+      "metrics": {
+        "wer": 0.77,
+        "metric": "CER",
+        "cer_unnormalized": 0.87,
+        "audio_length": 11645.44,
+        "inference_time": 281.59529648377793,
+        "rtfx": 41.3552,
+        "sim": 77.27,
+        "ins": 14,
+        "del": 24,
+        "sub": 286
+      },
+      "previous_uncompiled_bf16": {
+        "wer": 0.78,
+        "metric": "CER",
+        "cer_unnormalized": 0.88,
+        "audio_length": 11645.44,
+        "inference_time": 506.79586964519694,
+        "rtfx": 22.9786,
+        "sim": 77.14,
+        "ins": 15,
+        "del": 21,
+        "sub": 294
+      },
+      "dataset_revision": "f9759893ea663aacdbceebb9b1aaa01663ba3969",
+      "private_bucket": "ydqmkkx/gibbstts-seed-zh-compiled-pad-20261012",
+      "jobs": {
+        "generate": {
+          "id": "6acca73b095c57808932a7a1",
+          "stage": "generate",
+          "status": "COMPLETED",
+          "hardware": "h200",
+          "url": "https://huggingface.co/jobs/ydqmkkx/6acca73b095c57808932a7a1",
+          "created_at": "2026-10-12 09:24:11.942000+00:00",
+          "started_at": "2026-10-12 09:24:17.843000+00:00",
+          "finished_at": "2026-10-12 09:42:28.228000+00:00",
+          "durations": {
+            "scheduling_secs": 5,
+            "running_secs": 1090,
+            "total_secs": 1096
+          }
+        },
+        "score": {
+          "id": "6accab87fee2c900701a4a16",
+          "stage": "score",
+          "status": "COMPLETED",
+          "hardware": "l4x1",
+          "url": "https://huggingface.co/jobs/ydqmkkx/6accab87fee2c900701a4a16",
+          "created_at": "2026-10-12 09:42:31.944000+00:00",
+          "started_at": "2026-10-12 09:44:34.443000+00:00",
+          "finished_at": "2026-10-12 09:55:57.299000+00:00",
+          "durations": {
+            "scheduling_secs": 122,
+            "running_secs": 682,
+            "total_secs": 805
+          }
+        }
+      },
+      "timed_recompile_backend_attempts": 0
+    }
+  ],
+  "production_entry_smoke": {
+    "samples": 8,
+    "status": "COMPLETED",
+    "job_url": "https://huggingface.co/jobs/ydqmkkx/6accb4b1fee2c900701a534e",
+    "hardware": "h200",
+    "execution_batch_size": 32,
+    "dummy_rows": 24,
+    "formal_recompile_attempts": 0,
+    "complete_resume_preserves_all_bytes": true
+  }
+}

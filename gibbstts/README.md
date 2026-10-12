@@ -1,104 +1,67 @@
-# GibbsTTS backend
+# GibbsTTS EN/ZH voice-cloning backend
 
-Official model documentation: https://github.com/ydqmkkx/GibbsTTS
+Model: [ydqmkkx/GibbsTTS](https://huggingface.co/ydqmkkx/GibbsTTS). Upstream documentation: [GitHub](https://github.com/ydqmkkx/GibbsTTS).
 
-This backend evaluates the public base EN/ZH checkpoint with the upstream
-`GibbsTTS.synthesize()` API. Voice cloning is required; the reference comes from
-each benchmark sample. Inference is serial (`batch_size=1`, batch inference: no).
-Japanese LoRA and the optional no-cloning TTFA benchmark are not included.
+The submitted configuration uses native batch32 DiT/CTMC inference, BF16 estimator autocast, TorchInductor compilation and a padded final batch. Text/reference preprocessing and codec calls remain per real utterance. The base checkpoint supports English and Chinese; the Japanese LoRA and optional no-cloning TTFA probe are separate.
 
-## Reproducibility
+## Environment and reproducibility
 
-- Model: `ydqmkkx/GibbsTTS`, MIT, approximately 0.4B generative parameters.
-- Code: `2af61715fe832b8dbef909b545090a56056428a3`.
-- Weights: `a31945f20bf84498af41508ff3b126ea7f53b5c2`.
-- Sampling: 32 steps, CFG 2.5, rescale CFG 0.75, temperature 0.6,
-  top-p 1.0, speed 1.0, seed 42. No precision changes, retries, or ASR-based selection.
-- Output: mono 24 kHz float WAV, with reference WAVs and the standard JSONL manifest.
-- RTFx timing uses synchronized wall-clock time around the public synthesis call,
-  including phonemization, prompt reading/encoding, generation, and codec decoding.
-  Model loading, two warm-up utterances, preparing the reference files, and saving
-  the generated files are excluded. Samples are re-seeded independently.
-- `generation_config.json` accompanies each split. Resume skips complete rows,
-  repairs missing waveform/reference files, and rejects changed sampling settings.
+The public Docker Space [bezzam/evals](https://huggingface.co/spaces/bezzam/evals) is used with `bootstrap.sh`, which installs pinned dependencies and checks out GibbsTTS commit `2af61715fe832b8dbef909b545090a56056428a3`. The evaluated image runs PyTorch 2.8.0+cu128. Setup and downloads precede generation timing. Creating a dedicated Docker Space on this account returned HTTP402 requiring PRO, so this backend uses the existing public image and runtime bootstrap.
 
-## HF Jobs
+Weights: `a31945f20bf84498af41508ff3b126ea7f53b5c2`. Metadata: MIT; voice cloning yes; batch inference yes; two base languages; approximately 0.4B generative parameters (codec excluded); Transformers backend no.
 
-Create a public Docker Space for the environment. The matching build files are
-prepared separately in `gibbstts-space/` alongside this checkout; backend Dockerfiles
-normally live in their HF Spaces, as described in the repository README.
-HF currently requires PRO to create a Docker Space on `cpu-basic`. HF Jobs itself
-is a separate service. If you cannot build a Space, reuse the public leaderboard
-image with `TTS_SPACE=bezzam/evals GIBBSTTS_BOOTSTRAP=true`; `bootstrap.sh` installs
-the pinned dependencies and official source inside each generation job. Setup and
-weight downloads are outside the inference timer, but incur job compute charges.
+Defaults: 32 steps, CFG2.5, rescale CFG0.75, temperature0.6, top-p1, speed1, seed42 per batch. Model/codec weights, logits and solver stay FP32; BF16 is estimator autocast only. `batched_inference.py` and `compiler_backend.py` are the exact files used by the full experiments. Static text/language embeddings and masks are prepared once per batch; sorting is skipped for top-p1. The RoPE cache is initialized to 16384 positions during setup.
 
-Prepare **private** `seed_tts_eval` and `cv3_eval` dataset copies with the existing
-`scripts/prepare_seed_tts_eval.py` and `scripts/prepare_cv3_eval.py`.
-The smoke launcher uses `ydqmkkx/seed_tts_eval_smoke` and `ydqmkkx/cv3_eval_smoke`,
-private copies containing the first 8 English rows in official release order.
-The launcher loads the locally configured token without printing it, checks Jobs
-access and prerequisite resources, uses the existing `bezzam/evals` image with
-runtime bootstrap, sets 20-minute timeouts for all six jobs, and disables automatic
-retries. It completes the Seed-TTS chain before starting CV3 and stops on failure.
-The token needs **Jobs → Start and manage Jobs**, in addition to repo/bucket access.
+## Timing, padding and resume
+
+RTFx is real audio duration divided by synchronized wall-clock generation time on H200. Timing includes phonemization, local reference reading/resampling/encoding, packing/static cache, DiT/CFG/logits, sampling and real codec decoding/CPU return. Model loading, reference-file preparation, output writes/transfers and ASR/SIM are excluded.
+
+Only the initial two warm-up calls on the first pending batch are excluded. No per-batch warm-up is used; later compilation stays timed and is recorded. Inductor uses its default mode, `fullgraph=True`, `dynamic=True`; CUDA Graph is not explicitly enabled.
+
+The final batch repeats one valid prepared row to reach batch32. Dummy rows have no extra frontend/reference encoding or output decoding, and their outputs are discarded. All dummy DiT/CTMC compute is timed; duration and WER/CER/SIM include real rows only. Full batch time is divided by real count, including a four-row tail. Generation follows official order with seed42 per batch, with no retries or score-based selection.
+
+`generation_config.json` records settings, warm-ups, batch counts/times and compiler events. `--resume` rejects changed settings and repairs whole incomplete original batches, preserving their RNG shape/timing allocation; complete runs are skipped. Batch shape and compilation can change waveforms; reported quality is from the actual optimized outputs.
+
+## Run on HF Jobs
+
+Prepare private copies named `seed_tts_eval` and `cv3_eval` with the repository's preparation scripts. Authenticate locally with `hf auth login`; the token needs Jobs management and access to your private datasets/bucket. Use a fresh bucket for a different configuration.
 
 ```bash
-python gibbstts/run_smoke.py         # read-only readiness checks; no paid jobs
-python gibbstts/run_smoke.py --run   # paid test; only after resources are ready and cost approved
-```
+export DATASET_NAMESPACE=YOUR_USERNAME
+export RESULTS_BUCKET=YOUR_USERNAME/your_private_results_bucket
+export TTS_SPACE=bezzam/evals
+export GIBBSTTS_BOOTSTRAP=true
 
-Configure your own bucket and Docker Space explicitly:
+# Paid eight-sample smoke test.
+MAX_EVAL_SAMPLES=8 ONLY_LANGS=en STAGE_RETRIES=0 bash gibbstts/submit_jobs.sh
 
-```bash
-export DATASET_NAMESPACE=ydqmkkx
-export TTS_SPACE=ydqmkkx/evals-gibbstts
-export RESULTS_BUCKET=ydqmkkx/gibbstts-smoke-h200
-export HF_TOKEN="$(python -c 'from huggingface_hub import get_token; t=get_token(); assert t, "Run hf auth login first"; print(t)')"
-
-# Paid smoke test: first 8 examples of Seed-TTS/en and CV3/en.
-MAX_EVAL_SAMPLES=8 ONLY_LANGS=en GEN_TIMEOUT=20m bash gibbstts/submit_jobs.sh
-
-# Paid full run: four splits. Use a fresh bucket and confirm a budget first.
-RESULTS_BUCKET=ydqmkkx/gibbstts-full-h200 \
+# Paid full run: generation -> ASR -> SIM -> local scoring.
 MAX_EVAL_SAMPLES=-1 ONLY_LANGS="en zh" bash gibbstts/submit_jobs.sh
 ```
 
-HF Jobs charges for GPU compute. A timeout limits each generation job, not the
-total run cost; shared ASR/SIM timeouts and image retries also contribute.
-Bucket storage may have separate charges. Do not run these commands before
-checking account credits and approving the planned compute cost.
+Generation uses H200; shared Qwen3-ASR and WavLM-Seed-TTS scoring use L4. To re-score existing audio, use `STAGES="transcribe sim"`; after regenerating audio set `ASR_OVERWRITE=true SIM_OVERWRITE=true`.
 
-To re-score existing results, set `STAGES="transcribe sim"` and use the same bucket.
-If regenerating audio in an existing bucket, set `SIM_OVERWRITE=true ASR_OVERWRITE=true`.
-All four splits run in parallel, and each split has generation → transcription → SIM.
+## Completed evaluation
 
-## Use your existing GPU for development
+All 4108 real rows were generated, scored and checked against official IDs/text/order and exact baseline reference PCM. Eight full GPU jobs completed. The native inference modules are unchanged from those runs; aggregate metrics, data revisions and job links are in `results.json`. Benchmark text and reference audio remain private.
 
-With the same Python dependencies as the Docker environment installed, a checkout
-of the official GibbsTTS source, and access to your private benchmark copy:
+| Dataset | N | WER/CER | RTFx | SIM |
+|---|---:|---:|---:|---:|
+| Seed-TTS/en | 1088 | 0.92% | 25.49 | 72.86% |
+| Seed-TTS/zh | 2020 | 0.77% | 41.36 | 77.27% |
+| CV3/en | 500 | 2.87% | 26.01 | 66.75% |
+| CV3/zh | 500 | 2.50% | 31.20 | 77.44% |
 
-```bash
-PYTHONPATH=scripts python gibbstts/run_eval.py \
-  --source_dir=/path/to/GibbsTTS --checkpoint_path=/path/to/pretrained \
-  --dataset_path=ydqmkkx/seed_tts_eval --dataset=tts --split=en \
-  --device=cuda:0 --voice_clone --max_eval_samples=8
-```
+Language composites: EN WER1.90%, RTFx25.71, SIM69.81%; ZH CER1.64%, RTFx38.11, SIM77.35%. Error/SIM use dataset macro-averages; RTFx pools audio/time. Compared with the previously evaluated uncompiled BF16/b32 path, CV3/zh CER changes 2.34% -> 2.50% and SIM77.66% ->77.44%. This is a throughput/quality tradeoff, not numerically identical generation.
 
-Missing weights are downloaded from the pinned public model revision. Use `--resume`
-to continue an interrupted local generation. Local CPU/other GPU timing is for
-development; official leaderboard generation timing must use H200.
-
-## Offline validation
-
-Install `pytest numpy soundfile datasets==3.6.0 librosa` and run:
+## Validation
 
 ```bash
 python -m pytest gibbstts/test_backend.py -q
 bash -n gibbstts/submit_jobs.sh scripts/tts_jobs_common.sh
+PYTHONPATH=scripts python gibbstts/run_eval.py --help
 ```
 
-Tests exercise real HF Audio decoding and WAV/manifest I/O with a fake synthesizer,
-plus job-command capture and timeout/failure handling. They do not certify CUDA
-inference or a Docker build. Complete the real smoke/full evaluation before
-marking the upstream PR's smoke-test or full-results checklist items complete.
+Offline tests use real WAV/HF Audio/manifest I/O with a fake batch generator/CUDA interface. They check real-only timing allocation, padded-tail counts, whole-batch repair and actual H200 job-command generation. They are not CUDA measurements. The [eight-row H200 production-entry smoke](https://huggingface.co/jobs/ydqmkkx/6accb4b1fee2c900701a534e) passed: 8 real outputs, execution batch32, 24 dummy rows discarded, no timed recompilation, and byte-identical completed resume. The private smoke results are separate from the full evaluation.
+
+For CPU development use `--device=cpu --precision=fp32 --no-compile`; CPU/other-GPU timing is not official leaderboard timing.
