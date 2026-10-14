@@ -7,7 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common
 # ── Backend config ───────────────────────────────────────────────────────────
 TTS_SPACE="${TTS_SPACE:-bezzam/evals-vibevoice}"   # stage-1 image (Dockerfile in the Space: https://huggingface.co/spaces/bezzam/evals-vibevoice/blob/main/Dockerfile)
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
-DEFAULT_STAGES="generate transcribe"               # no SIM (fixed voice)
+DEFAULT_STAGES="generate transcribe utmos"               # no SIM (fixed voice)
 RUN_EVAL_INJECT="$(inject_run_eval)"
 
 # ── Language → voice preset ──────────────────────────────────────────────────
