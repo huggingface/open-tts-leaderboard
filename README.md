@@ -267,6 +267,25 @@ To add a model, implement `--ttfa_probe` in its `run_eval.py` (see [scripts/ttfa
 The leaderboard reports the p50 and p95 TTFA and the batch-1 RTFx (`python scripts/open_results_pr.py --model_id <model> --targets streaming`). **Batch-1 RTFx is not the leaderboard RTFx**, which is measured at each backend's real batch size.
 
 
+## Miscellaneous
+
+#### Normalizer changes
+
+After a normalization change, existing JSONL manifests can be rescored without rerunning generation or ASR: manifests store the raw `text` and `pred_text`, and normalization is applied at scoring time.
+
+```bash
+# dry run over every row of every benchmark file
+python scripts/rescore_all.py
+
+# some models / benchmarks only, keeping the updated CSVs locally for inspection
+python scripts/rescore_all.py --models k2-fsa/OmniVoice openbmb/VoxCPM2 --targets cv3 \\
+    --out_dir /tmp/rescored
+
+# re-use results already synced locally, and open the PR
+python scripts/rescore_all.py --skip_sync --open_pr
+```
+
+
 ## Citation 
 
 If you use the Open TTS Leaderboard, please cite it along with the benchmarks it evaluates on:
