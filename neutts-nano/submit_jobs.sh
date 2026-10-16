@@ -40,7 +40,7 @@ generate_stage() {
 # ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment to pick) ──
 DATASET_CONFIGS=(
     "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
+    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
 )
 
 # ── Models: "model_id batch_size" (batch_size optional; CLI args override) ────

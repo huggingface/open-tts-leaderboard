@@ -231,7 +231,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     add_common_args(parser)
     # CV3-Eval by default. --device must be cuda for --backend=torch (ggml picks its own device).
-    parser.set_defaults(dataset_path="bezzam/cv3_eval", dataset="zero_shot")
+    parser.set_defaults(dataset_path="hf-audio/cv3_eval", dataset="zero_shot")
 
     parser.add_argument(
         "--model_id", type=str, default="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",

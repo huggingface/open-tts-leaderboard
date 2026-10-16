@@ -33,7 +33,7 @@ RESULTS_BUCKET="${RESULTS_BUCKET:-hf-audio/tts_leaderboard_h200}"   # shared HF 
 # HF namespace holding your PRIVATE copies of the eval datasets (their licenses forbid
 # redistribution; push them with scripts/prepare_{seed_tts,cv3}_eval.py). Only supplies the defaults
 # below — DATASET_PATH / CV3_EVAL_PATH (or a DATASET_CONFIGS line's 4th field) can name any repo.
-DATASET_NAMESPACE="${DATASET_NAMESPACE:-bezzam}"
+DATASET_NAMESPACE="${DATASET_NAMESPACE:-hf-audio}"
 # Default dataset repo, used for every DATASET_CONFIGS line that does not name its own (4th field).
 DEFAULT_DATASET_PATH="${DATASET_PATH:-${DATASET_NAMESPACE}/seed_tts_eval}"
 # The other eval set — named explicitly by the CV3 lines of a backend's DATASET_CONFIGS.

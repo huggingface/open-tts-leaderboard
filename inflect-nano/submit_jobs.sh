@@ -38,7 +38,7 @@ supports_language() { [[ " ${INFLECT_NANO_LANGUAGES} " == *" $1 "* ]]; }
 # ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
 DATASET_CONFIGS=(
     "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
+    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
 )
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────

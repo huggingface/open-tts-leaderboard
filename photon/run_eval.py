@@ -228,7 +228,7 @@ if __name__ == "__main__":
     # --warmup_steps = untimed synthesize() calls before the probe (Kestrel graph capture / kernel
     # selection). --ttfa_probe is REQUIRED: this backend does nothing else.
     add_common_args(parser)
-    parser.set_defaults(dataset_path="bezzam/cv3_eval", dataset="zero_shot")
+    parser.set_defaults(dataset_path="hf-audio/cv3_eval", dataset="zero_shot")
 
     args = parser.parse_args()
     args.language = LANGUAGE_CODE_TO_NAME.get(args.language.lower(), args.language)

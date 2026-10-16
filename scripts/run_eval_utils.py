@@ -175,7 +175,7 @@ def add_common_args(parser, batch_size=None, voice_clone=None):
     (their value is the default). Change another default with `parser.set_defaults(...)`."""
     import argparse
 
-    parser.add_argument("--dataset_path", type=str, default="bezzam/seed_tts_eval",
+    parser.add_argument("--dataset_path", type=str, default="hf-audio/seed_tts_eval",
                         help="Dataset repo id (scripts/prepare_seed_tts_eval.py or prepare_cv3_eval.py).")
     parser.add_argument("--dataset", type=str, default="tts",
                         help="Dataset config: 'tts' (Seed-TTS) or 'zero_shot' (CV3-Eval).")

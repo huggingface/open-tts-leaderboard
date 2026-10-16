@@ -46,13 +46,13 @@ generate_stage() {
 # ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
 DATASET_CONFIGS=(
     "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot ko ko ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot de de ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
+    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot ko ko ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
 )
 
 # ── Models: "model_id batch_size" (CLI args override; speaker comes from VIBEVOICE_VOICES) ──

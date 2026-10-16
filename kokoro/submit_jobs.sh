@@ -52,12 +52,12 @@ generate_stage() {
 DATASET_CONFIGS=(
     "tts en en"
     "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot zh zh ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
+    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot zh zh ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
 )
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────

@@ -87,8 +87,8 @@ bash transformers/submit_jobs.sh "facebook/seamless-m4t-v2-large 32 "
 ********************************************************************************
 Results per dataset:
 ********************************************************************************
-facebook/seamless-m4t-v2-large | bezzam-cv3_eval_zero_shot_en: WER = 4.55 %, RTFx = 23.01
-facebook/seamless-m4t-v2-large | bezzam-seed_tts_eval_tts_en: WER = 0.00 %, RTFx = 19.46
+facebook/seamless-m4t-v2-large | hf-audio-cv3_eval_zero_shot_en: WER = 4.55 %, RTFx = 23.01
+facebook/seamless-m4t-v2-large | hf-audio-seed_tts_eval_tts_en: WER = 0.00 %, RTFx = 19.46
 
 ********************************************************************************
 Composite Results:
@@ -153,7 +153,7 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATASET_NAMESPACE` | `bezzam` | Namespace holding your private `seed_tts_eval` / `cv3_eval` copies |
+| `DATASET_NAMESPACE` | `hf-audio` | Namespace holding your private `seed_tts_eval` / `cv3_eval` copies |
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
 | `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |
