@@ -1,6 +1,7 @@
 """GibbsTTS EN/ZH voice cloning: BF16 DiT autocast, batch32, compile, padded tail.
 
-Weights, codec, logits and solver remain FP32. TTFA/Japanese LoRA are separate.
+Weights, codec and solver remain FP32; estimator logits are returned as FP32.
+BF16 estimator autocast includes its logits projection. TTFA/Japanese LoRA are separate.
 Environment: https://huggingface.co/spaces/ydqmkkx/evals-gibbstts
 The pinned image supplies the model implementation and byte-identical batch and
 compiler modules; this file contains the leaderboard I/O and timing adapter.
@@ -95,7 +96,11 @@ def load_model(args):
     config.infer_ckpt_path = str(checkpoint / WEIGHT_FILES[0])
     for key in ("steps", "cfg", "rescale_cfg", "temperature", "top_p", "speed"):
         setattr(config, key, getattr(args, key))
-    model = GibbsTTS(config).eval()
+    if args.device == "cpu":
+        from cpu_compat import instantiate_cpu_model
+        model = instantiate_cpu_model(GibbsTTS, config).eval()
+    else:
+        model = GibbsTTS(config).eval()
     if not all(p.dtype == torch.float32 for p in model.parameters()):
         raise RuntimeError("Expected FP32 weights; BF16 is estimator autocast only.")
     print_model_size(model.model)
