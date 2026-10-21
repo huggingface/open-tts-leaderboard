@@ -3,11 +3,12 @@
 # Runtime Dockerfile: https://huggingface.co/spaces/ydqmkkx/evals-gibbstts/blob/main/Dockerfile
 # The upstream job helpers require GNU coreutils. Run on Linux, or put GNU
 # coreutils' libexec/gnubin directory on PATH when launching from macOS.
-set -e -o pipefail
+# The shared run_stage checks PIPESTATUS after tee; global pipefail would
+# terminate it before transient image-pull failures can be retried.
+set -e
 
-# Never accidentally read the maintainer's private datasets or write their official bucket.
-: "${DATASET_NAMESPACE:?Set DATASET_NAMESPACE to the owner of your private benchmark copies}"
-: "${RESULTS_BUCKET:?Set RESULTS_BUCKET to your evaluation bucket}"
+# Dataset and bucket defaults, and their environment overrides, come from the
+# shared helper. Personal runs should explicitly select their own datasets/bucket.
 TTS_SPACE="${TTS_SPACE:-ydqmkkx/evals-gibbstts}"
 if [[ "$(uname -s)" == Darwin ]] && ! base64 --version >/dev/null 2>&1; then
     echo 'The upstream helpers require GNU coreutils; add its libexec/gnubin directory to PATH or launch on Linux.' >&2
@@ -19,8 +20,7 @@ VOICE_CLONE="${VOICE_CLONE:-true}"
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common.sh"
 SUPPORTS_VOICE_CLONE=true
-# Keep the originally evaluated ASR/SIM stages explicit; UTMOS is a separate metric.
-DEFAULT_STAGES="generate transcribe sim"
+DEFAULT_STAGES="generate transcribe sim utmos"
 RUN_EVAL_INJECT="$(inject_run_eval)"
 
 supports_language() { [[ "$1" == en || "$1" == zh ]]; }
