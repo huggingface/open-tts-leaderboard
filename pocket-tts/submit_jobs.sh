@@ -70,11 +70,11 @@ generate_stage() {
 # Seed-TTS zh and CV3-Eval ja/ko/ru/zh are omitted: Pocket TTS has no checkpoint for them.
 DATASET_CONFIGS=(
     "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot de de ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
+    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
 )
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────

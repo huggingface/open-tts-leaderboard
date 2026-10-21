@@ -7,7 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common
 # ── Backend config ───────────────────────────────────────────────────────────
 TTS_SPACE="${TTS_SPACE:-bezzam/evals-kokoro}"   # stage-1 image (Dockerfile in the Space: https://huggingface.co/spaces/bezzam/evals-kokoro/blob/main/Dockerfile)
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
-DEFAULT_STAGES="generate transcribe"            # no SIM (fixed voice)
+DEFAULT_STAGES="generate transcribe utmos"      # no SIM (fixed voice)
 RUN_EVAL_INJECT="$(inject_run_eval)"
 
 # ── Language → (Kokoro lang_code, voice pack) ────────────────────────────────
@@ -52,12 +52,12 @@ generate_stage() {
 DATASET_CONFIGS=(
     "tts en en"
     "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot zh zh ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
+    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot zh zh ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
 )
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────

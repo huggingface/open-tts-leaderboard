@@ -7,7 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common
 # ── Backend config ───────────────────────────────────────────────────────────
 TTS_SPACE="${TTS_SPACE:-bezzam/evals-vibevoice}"   # stage-1 image (Dockerfile in the Space: https://huggingface.co/spaces/bezzam/evals-vibevoice/blob/main/Dockerfile)
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
-DEFAULT_STAGES="generate transcribe"               # no SIM (fixed voice)
+DEFAULT_STAGES="generate transcribe utmos"               # no SIM (fixed voice)
 RUN_EVAL_INJECT="$(inject_run_eval)"
 
 # ── Language → voice preset ──────────────────────────────────────────────────
@@ -46,13 +46,13 @@ generate_stage() {
 # ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
 DATASET_CONFIGS=(
     "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot ko ko ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot de de ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
+    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot ko ko ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
 )
 
 # ── Models: "model_id batch_size" (CLI args override; speaker comes from VIBEVOICE_VOICES) ──

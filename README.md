@@ -13,6 +13,7 @@ While human preference is the ultimate decider, **arenas cannot scale to keep up
 1. **Intelligibility**: word/character error rate (WER and CER) between the target text and the generated audio's transcript, using [Qwen3 ASR](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf) (top ranking open-source model on the [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard)).
 2. **Speed**: inverse real-time factor (RTFx) for batched offline inference on an H200 GPU, and time-to-first-audio (TTFA) for quantifying streaming batch size 1 latency on an A100 GPU and CPU.
 3. **Speaker similarity** by computing the cosine similarity (SIM) between [WavLM speaker embeddings](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval) of the generated audio and the reference clip. Note that not all models support voice cloning, so those models are omitted from this evaluation.
+4. **Naturalness**: predicted MOS (1-5) with [UTMOS22 strong](https://github.com/tarepan/SpeechMOS) (UTMOS). UTMOS22 is trained on English only, so it is reported for `en` only.
 
 By relying on objective metrics **evaluating a model drops from a couple weeks (for collecting votes) to a couple hours** ⚡
 
@@ -23,6 +24,7 @@ Our intention with this leaderboard is for it to be **shaped by the community**;
 - [Setup for running evaluations](#setup-for-running-evaluations)
 - [Batch evaluation (main tab)](#batch-evaluation-main-tab)
   - [Publishing results](#publishing-results)
+- [Example costs](#example-costs)
 - [Adding a new model](#adding-a-new-model)
 - [Time-to-first audio (streaming) evaluation](#time-to-first-audio-streaming-evaluation)
 - [Citation](#citation)
@@ -87,8 +89,8 @@ bash transformers/submit_jobs.sh "facebook/seamless-m4t-v2-large 32 "
 ********************************************************************************
 Results per dataset:
 ********************************************************************************
-facebook/seamless-m4t-v2-large | bezzam-cv3_eval_zero_shot_en: WER = 4.55 %, RTFx = 23.01
-facebook/seamless-m4t-v2-large | bezzam-seed_tts_eval_tts_en: WER = 0.00 %, RTFx = 19.46
+facebook/seamless-m4t-v2-large | hf-audio-cv3_eval_zero_shot_en: WER = 4.55 %, RTFx = 23.01
+facebook/seamless-m4t-v2-large | hf-audio-seed_tts_eval_tts_en: WER = 0.00 %, RTFx = 19.46
 
 ********************************************************************************
 Composite Results:
@@ -103,7 +105,7 @@ facebook/seamless-m4t-v2-large: RTFx = 21.19
 
 Each model family has its own folder (e.g. [kokoro/](kokoro/), [voxcpm2/](voxcpm2/), [transformers/](transformers/)) with a `submit_jobs.sh` that is run **locally** and submits HF Jobs to HF servers. The orchestration shared by all backends lives in [scripts/tts_jobs_common.sh](scripts/tts_jobs_common.sh).
 
-For each (model, dataset split) pair, the pipeline runs three sequential HF Jobs (two if the model is not voice cloning), followed by scoring on your machine. The splits of a model run in parallel; models run one after another.
+For each (model, dataset split) pair, the pipeline runs four sequential HF Jobs (three if the model is not voice cloning), followed by scoring on your machine. The splits of a model run in parallel; models run one after another.
 
 ```mermaid
 flowchart LR
@@ -116,34 +118,40 @@ flowchart LR
         gen["<b>1. Generate</b><br/>&lt;backend&gt;/run_eval.py · H200"]
         asr["<b>2. Transcribe</b><br/>Qwen3-ASR · L4"]
         sim["<b>3. Speaker similarity</b><br/>WavLM-SV · L4"]
+        utmos["<b>4. UTMOS</b><br/>UTMOS22 · L4"]
     end
 
     ds[("Private datasets<br/>seed_tts_eval / cv3_eval")]
     bucket[("RESULTS_BUCKET<br/>wavs + JSONL manifests")]
 
-    submit --> gen --> asr -->|voice cloning only| sim
+    submit --> gen --> asr -->|voice cloning only| sim --> utmos
+    asr --> utmos
     ds --> gen
     gen -->|wavs + manifest| bucket
     asr <-->|pred_text| bucket
     sim <-->|sim| bucket
+    utmos -->|UTMOS_*.json| bucket
     bucket -->|manifests only| score
 ```
 
 1. **Generate** (`generate`): the backend's `run_eval.py` synthesizes every sample of the split and writes the wavs plus a JSONL manifest to `RESULTS_BUCKET`, in a folder per model.
 2. **Transcribe** (`transcribe`): [transformers/transcribe.py](transformers/transcribe.py) transcribes the wavs with [Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf), using the split's language as a hint.
 3. **Speaker similarity** (`sim`, voice cloning only): [transformers/score_similarity.py](transformers/score_similarity.py) compares each generated clip with its reference prompt, using the [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval#metrics) speaker-verification model (WavLM-large + ECAPA-TDNN, mirrored [here](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval)).
-4. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
+4. **UTMOS** (`utmos`, `UTMOS_LANGS` only): [transformers/score_utmos.py](transformers/score_utmos.py) predicts a MOS for each wav with UTMOS22 strong.
+5. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
    - **WER** after text normalization (CER for `zh`, `ja`, `ko`)
    - **RTFx**: total audio duration divided by total generation time, measured in stage 1
    - **SIM**: mean speaker similarity, for voice cloning only
+   - **UTMOS**: mean predicted MOS
 
-The stages are separate jobs because the TTS, ASR and speaker-similarity models have conflicting dependencies: stage 1 uses the backend's own Docker Space image, and stages 2 and 3 share [bezzam/evals](https://huggingface.co/spaces/bezzam/evals).
+The stages are separate jobs because the TTS, ASR and speaker-similarity models have conflicting dependencies: stage 1 uses the backend's own Docker Space image, and stages 2-4 share [bezzam/evals](https://huggingface.co/spaces/bezzam/evals).
 
 | Stage | Flavor | Hardware |
 |---|---|---|
 | 1. Generate | `h200` | 1x Nvidia H200 (141 GB) |
 | 2. Transcribe | `l4x1` | 1x Nvidia L4 (24 GB) |
 | 3. Speaker similarity | `l4x1` | 1x Nvidia L4 (24 GB) |
+| 4. UTMOS | `l4x1` | 1x Nvidia L4 (24 GB) |
 
 RTFx is measured in stage 1, so every model is generated on the **same** flavor (`h200`); don't override `FLAVOR` in a backend. See the [HF Jobs documentation](https://huggingface.co/docs/huggingface_hub/main/en/guides/jobs#select-the-hardware) for pricing.
 
@@ -153,11 +161,11 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATASET_NAMESPACE` | `bezzam` | Namespace holding your private `seed_tts_eval` / `cv3_eval` copies |
+| `DATASET_NAMESPACE` | `hf-audio` | Namespace holding your private `seed_tts_eval` / `cv3_eval` copies |
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
 | `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |
-| `STAGES` | `generate transcribe sim` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs |
+| `STAGES` | `generate transcribe sim utmos` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs |
 | `VOICE_CLONE` | `false` | Clone the prompt speaker (backends that support both modes) |
 | `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. **Set `SIM_OVERWRITE=true` after regenerating audio**, otherwise old SIM scores are carried over |
 | `ORG_NAME` | (none) | Run the jobs under an organization's namespace |
@@ -186,6 +194,24 @@ python scripts/open_results_pr.py --model_id openbmb/VoxCPM2 \
 ```
 
 A new versions entry should be set in the HF space code [here](https://huggingface.co/spaces/hf-audio/open_tts_leaderboard/blob/main/leaderboard_data.py#L50).
+
+
+## Example costs
+
+Full runs on 11 combos (Seed-TTS `en`/`zh` + CV3 `en`/`zh`/`fr`/`es`/`de`/`it`/`ja`/`ko`/`ru`), in October 2026, counting job running time only:
+
+- `facebook/seamless-m4t-v2-large`: Transformers backend, default voice (no SIM), batch size 32
+- `k2-fsa/OmniVoice`: voice cloning (`VOICE_CLONE=true`), batch size 32
+
+| Stage | Seamless | OmniVoice (voice cloning) |
+|---|---|---|
+| 1. Generate (`h200`, $5.00/h) | 11 jobs, 12 min: $1.01 | 11 jobs, 49 min: $4.09 |
+| 2. Transcribe (`l4x1`, $0.80/h) | 11 jobs, 25 min: $0.34 | 11 jobs, 26 min: $0.34 |
+| 3. Speaker similarity (`l4x1`, $0.80/h) | — | 11 jobs, 43 min: $0.57 |
+| 4. UTMOS (`l4x1`, $0.80/h, English only) | 2 jobs, 3 min: $0.04 | 2 jobs, 4 min: $0.05 |
+| **Total** | **≈ $1.40** | **≈ $5.05** |
+
+Seamless is fast and batched, so most of each of its generation jobs (~1 min per combo) is image and model loading; OmniVoice takes ~4 min per combo (~8 min for Seed-TTS `zh`, the largest split). Stage 1 scales with the model's speed: a slower model, or one that generates one sample at a time, can cost 10-100x more there. Stages 2-4 scale with the amount of audio, so they stay roughly constant.
 
 
 ## Adding a new model
@@ -265,6 +291,25 @@ TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh kokoro
 To add a model, implement `--ttfa_probe` in its `run_eval.py` (see [scripts/ttfa_probe.py](scripts/ttfa_probe.py)) and add it to `TTFA_TARGETS` in [submit_ttfa_jobs.sh](submit_ttfa_jobs.sh).
 
 The leaderboard reports the p50 and p95 TTFA and the batch-1 RTFx (`python scripts/open_results_pr.py --model_id <model> --targets streaming`). **Batch-1 RTFx is not the leaderboard RTFx**, which is measured at each backend's real batch size.
+
+
+## Miscellaneous
+
+#### Normalizer changes
+
+After a normalization change, existing JSONL manifests can be rescored without rerunning generation or ASR: manifests store the raw `text` and `pred_text`, and normalization is applied at scoring time.
+
+```bash
+# dry run over every row of every benchmark file
+python scripts/rescore_all.py
+
+# some models / benchmarks only, keeping the updated CSVs locally for inspection
+python scripts/rescore_all.py --models k2-fsa/OmniVoice openbmb/VoxCPM2 --targets cv3 \\
+    --out_dir /tmp/rescored
+
+# re-use results already synced locally, and open the PR
+python scripts/rescore_all.py --skip_sync --open_pr
+```
 
 
 ## Citation 

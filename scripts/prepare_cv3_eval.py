@@ -8,7 +8,7 @@ Paper:  https://arxiv.org/pdf/2505.17589
 Clone the benchmark repo first; this script reads its `data/` tree in place:
 ```
 git clone git@github.com:QwenAudio/CV3-Eval.git
-python scripts/prepare_cv3_eval.py bezzam/cv3_eval
+python scripts/prepare_cv3_eval.py hf-audio/cv3_eval
 ```
 
 The data is organized Kaldi-style: each leaf task dir holds three parallel files keyed by
@@ -229,7 +229,7 @@ def build_split(config: dict, leaves: list[str], task_dir: Path, cv3_root: Path,
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("repo_id", help="HF dataset id to push to, e.g. 'bezzam/cv3_eval'.")
+    parser.add_argument("repo_id", help="HF dataset id to push to, e.g. 'hf-audio/cv3_eval'.")
     parser.add_argument(
         "--cv3-root",
         default="CV3-Eval",

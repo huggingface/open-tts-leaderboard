@@ -41,6 +41,37 @@ ADDITIONAL_DIACRITICS = {
 }
 
 
+_NON_SPEECH_TAGS = frozenset({
+    "laugh", "laughs", "laughing", "laughter",
+    "cough", "coughs", "coughing", "unk",
+})
+_BRACKET_PAIRS = (("(", ")"), ("[", "]"), ("<", ">"), ("（", "）"), ("［", "］"), ("＜", "＞"))
+_BRACKET_CHARACTERS = "".join(opening + closing for opening, closing in _BRACKET_PAIRS)
+_BRACKET_PATTERN = re.compile("|".join(
+    rf"{re.escape(opening)}[^{re.escape(_BRACKET_CHARACTERS)}]*{re.escape(closing)}"
+    for opening, closing in _BRACKET_PAIRS
+))
+
+
+def remove_non_speech_annotations(s: str) -> str:
+    """Remove only explicit enclosed non-speech tags, preserving spoken parentheticals.
+
+    References and ASR outputs can enclose ordinary words, acronyms, or numbers. Only an
+    exact tag body (ignoring case and surrounding whitespace) is removed; other enclosures
+    are left for punctuation cleanup. Match paired, innermost delimiters and repeat after
+    removing nested tags. Spaces keep adjacent words from joining across a removed tag.
+    """
+    def replace(match: Match[str]) -> str:
+        body = " ".join(match.group()[1:-1].casefold().split())
+        return " " if body in _NON_SPEECH_TAGS else match.group()
+
+    while True:
+        cleaned = _BRACKET_PATTERN.sub(replace, s)
+        if cleaned == s:
+            return cleaned
+        s = cleaned
+
+
 def remove_symbols_and_diacritics(s: str, keep=""):
     """
     Replace any other markers, symbols, and punctuations with a space, and drop any diacritics (category 'Mn' and some
@@ -77,8 +108,7 @@ class BasicMultilingualTextNormalizer:
 
     def __call__(self, s: str):
         s = s.lower()
-        s = re.sub(r"[<\[][^>\]]*[>\]]", "", s)  # remove words between brackets
-        s = re.sub(r"\(([^)]+?)\)", "", s)  # remove words between parenthesis
+        s = remove_non_speech_annotations(s)
         s = self.clean(s).lower()
 
         # Remove punctuations and extra spaces
@@ -626,8 +656,7 @@ class EnglishTextNormalizer:
     def __call__(self, s: str):
         s = s.lower()
 
-        s = re.sub(r"[<\[][^>\]]*[>\]]", "", s)  # remove words between brackets
-        s = re.sub(r"\(([^)]+?)\)", "", s)  # remove words between parenthesis
+        s = remove_non_speech_annotations(s)
         s = re.sub(self.ignore_patterns, "", s)
         s = re.sub(r"\s+'", "'", s)  # standardize when there's a space before an apostrophe
 

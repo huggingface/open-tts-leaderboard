@@ -8,11 +8,14 @@ numbers into one row per benchmark file, upserts those rows into
 
 Files written (all in that dataset repo):
     model_info.csv            metadata -- scoring cannot derive it, so it comes from the CLI flags
-    seed_tts.csv              Seed-TTS-Eval, model's own/default voice   (WER, RTFx)
-    seed_tts_voice_clone.csv  Seed-TTS-Eval, cloning each prompt         (WER, RTFx, SIM x2)
-    cv3.csv                   CV3-Eval, model's own/default voice        (WER, RTFx + averages)
-    cv3_voice_clone.csv       CV3-Eval, cloning each prompt              (WER, RTFx, SIM + averages)
+    seed_tts.csv              Seed-TTS-Eval, model's own/default voice   (WER, RTFx, UTMOS)
+    seed_tts_voice_clone.csv  Seed-TTS-Eval, cloning each prompt         (WER, RTFx, SIM x2, UTMOS)
+    cv3.csv                   CV3-Eval, model's own/default voice        (WER, RTFx, UTMOS + averages)
+    cv3_voice_clone.csv       CV3-Eval, cloning each prompt              (WER, RTFx, SIM, UTMOS + averages)
     streaming.csv             time-to-first-audio, CPU and GPU           (TTFA, RTFx at batch 1)
+
+Every file but model_info.csv also has a free-text `Note` column, filled by --note (e.g. hardware
+caveats); a results file gets the column the first time a note is published to it.
 
 Nothing is pushed unless --open_pr is passed: the default is a dry run that prints the rows.
 
@@ -37,6 +40,10 @@ Usage:
         --engine photon --row_name "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice (photon)" --open_pr \
         --note "https://moondream.ai/blog/photon-can-now-speak" --model_size_b 1.92
 
+    # a note on every file the run writes (here: RTFx/TTFA measured on CPU, not H200)
+    python scripts/open_results_pr.py --model_id gradium/phonon-31m-en \
+        --note "Evaluated on CPU (cpu-upgrade): RTFx is not comparable with H200" --open_pr
+
     # re-use results already synced locally (e.g. by submit_jobs.sh)
     python scripts/open_results_pr.py --model_id openbmb/VoxCPM2 --skip_sync
 """
@@ -55,7 +62,7 @@ sys.path.insert(0, REPO_ROOT)  # so `from normalizer import ...` resolves regard
 
 from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download  # noqa: E402
 
-from normalizer.eval_utils import SIM_BACKEND_SUFFIXES, default_multilingual, score_results  # noqa: E402
+from normalizer.eval_utils import SIM_BACKEND_SUFFIXES, UTMOS_COLUMN_LANGUAGES, default_multilingual, score_results  # noqa: E402
 
 # Where the results live, and where they are published.
 RESULTS_BUCKET = "hf-audio/tts_leaderboard_h200"
@@ -119,14 +126,15 @@ TTFA_PREFIX = "TTFA_"
 TTFA_COLUMN_GROUPS = {"cpu-upgrade": "CPU", "h200": "H200", "a100-large": "A100"}
 # Which group's streaming verdict wins when they disagree: the GPU probes first, newest hardware first.
 TTFA_VERDICT_ORDER = ["A100", "H200", "CPU"]
+# Free-text column of every published file but model_info.csv (--note).
+NOTE_COLUMN = "Note"
 # Row-level columns of streaming.csv that are not per-device measurements.
 STREAMING_API_COLUMN = "Streaming API"
-STREAMING_NOTE_COLUMN = "Note"
 STREAMING_SIZE_COLUMN = "Size (B)"
 
 
 # ── Bucket ───────────────────────────────────────────────────────────────────
-def sync_bucket(bucket, model_folder, local_dir, hf_token=None, clean=False):
+def sync_bucket(bucket, model_folder, local_dir, hf_token=None, clean=False, include=None):
     """Sync one model's folder out of the bucket, manifests only (scoring never reads the wavs).
 
     Same call `_wait_and_score` in scripts/tts_jobs_common.sh makes, so either's folder is usable.
@@ -143,7 +151,7 @@ def sync_bucket(bucket, model_folder, local_dir, hf_token=None, clean=False):
     if hf_token:
         env["HF_TOKEN"] = hf_token
     subprocess.run(
-        ["hf", "buckets", "sync", source, dest, "--exclude", "*.wav"],
+        ["hf", "buckets", "sync", source, dest, *(["--include", include] if include else ["--exclude", "*.wav"])],
         check=True,
         env=env,
     )
@@ -344,6 +352,8 @@ def collect_values(target, header_languages, records, scored, scored_xvector):
         values[f"{language} RTFx"] = fmt(result["rtfx"])
         if result.get("sim") is not None:
             values[f"{language} SIM"] = fmt(result["sim"])
+        if result.get("utmos") is not None:
+            values[f"{language} UTMOS"] = fmt(result["utmos"])
         if target.xvector_sim:
             legacy = scored_xvector.get(dataset_id)
             if legacy is not None and legacy.get("sim") is not None:
@@ -446,6 +456,35 @@ def render(published, index, new_row, sort):
     return rewrite_sorted(published, index, new_row) if sort else splice_row(published, index, new_row)
 
 
+def add_utmos_columns(published, languages):
+    """Append `<lang> UTMOS` (+ `avg UTMOS` if the file has averages) to a header without them."""
+    header = published.header
+    if any(column.endswith(" UTMOS") for column in header):
+        return published
+    header = header + [f"{lang} UTMOS" for lang in languages if lang in UTMOS_COLUMN_LANGUAGES]
+    if any(column.startswith("avg ") for column in header):
+        header.append("avg UTMOS")
+    return extend_header(published, header)
+
+
+def add_note_column(published):
+    """Append the `Note` column to a header without one."""
+    if NOTE_COLUMN in published.header:
+        return published
+    return extend_header(published, published.header + [NOTE_COLUMN])
+
+
+def extend_header(published, header):
+    """The file rewritten under the longer `header`, every row padded with blanks. A whole-file
+    rewrite, so only done the first time a file gets the new columns."""
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer, lineterminator=published.eol or "\n")
+    writer.writerow(header)
+    for row in published.rows:
+        writer.writerow(row + [""] * (len(header) - len(row)))
+    return Published(buffer.getvalue())
+
+
 def header_languages(header):
     """Languages the file publishes, read off its own header (every one has a `<lang> WER`)."""
     return [
@@ -489,7 +528,7 @@ def recompute_averages(header, row, languages):
     """
     notes = []
     index = {column: i for i, column in enumerate(header)}
-    for metric in ("WER", "RTFx", "SIM"):
+    for metric in ("WER", "RTFx", "SIM", "UTMOS"):
         avg_column = f"avg {metric}"
         if avg_column not in index:
             continue
@@ -577,7 +616,8 @@ def main():
     parser.add_argument(
         "--note",
         default=None,
-        help=f"{STREAMING_FILE} 'Note' column. Omitted leaves it as published; '' clears it.",
+        help=f"'Note' column of every file written but {MODEL_INFO_FILE} (added to a results file "
+             "that has none yet). Omitted leaves it as published; '' clears it.",
     )
     parser.add_argument("--bucket", default=RESULTS_BUCKET, help="Override the source bucket.")
     parser.add_argument(
@@ -585,6 +625,7 @@ def main():
         default=None,
         help="Where to sync results (default: <repo>/results, same place submit_jobs.sh uses).",
     )
+    parser.add_argument("--utmos_bucket", default=None, help="Bucket with the UTMOS sidecars (default: --bucket).")
     parser.add_argument("--skip_sync", action="store_true", help="Score already-downloaded results.")
     parser.add_argument(
         "--clean",
@@ -649,6 +690,8 @@ def main():
                 file=sys.stderr,
             )
             sys.exit(1)
+        if args.utmos_bucket:
+            sync_bucket(args.utmos_bucket, model_folder, local_dir, args.hf_token, include="UTMOS_*.json")
     if not os.path.isdir(model_dir):
         print(f"ERROR: no results directory for {args.model_id}: {model_dir}", file=sys.stderr)
         sys.exit(1)
@@ -732,7 +775,16 @@ def main():
         if not values:
             print(f"\n{target.filename}: nothing scored; skipping.")
             continue
-        action, index, new_row = upsert(published, row_name, values, {})
+        if any(column.endswith(" UTMOS") for column in values):
+            published = add_utmos_columns(published, languages)
+        # An empty --note only clears an existing note; it never adds the column.
+        extra = {}
+        if args.note:
+            published = add_note_column(published)
+        if args.note is not None and NOTE_COLUMN in published.header:
+            extra[NOTE_COLUMN] = args.note
+        header = published.header
+        action, index, new_row = upsert(published, row_name, values, extra)
         notes = recompute_averages(header, new_row, languages)
         show_row(header, new_row, action, target.filename, notes)
         updated[target.filename] = render(published, index, new_row, args.sort)
@@ -745,7 +797,7 @@ def main():
         if args.model_size_b is not None:
             extra[STREAMING_SIZE_COLUMN] = args.model_size_b
         if args.note is not None:
-            extra[STREAMING_NOTE_COLUMN] = args.note
+            extra[NOTE_COLUMN] = args.note
         action, index, new_row = upsert(published, row_name, values, extra)
         show_row(published.header, new_row, action, STREAMING_FILE, notes)
         updated[STREAMING_FILE] = render(published, index, new_row, args.sort)

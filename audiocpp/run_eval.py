@@ -437,7 +437,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     add_common_args(parser, voice_clone=False)
-    parser.set_defaults(dataset_path="bezzam/cv3_eval", dataset="zero_shot")
+    parser.set_defaults(dataset_path="hf-audio/cv3_eval", dataset="zero_shot")
 
     parser.add_argument("--model_id", type=str, default="openbmb/VoxCPM2",
                         help=f"Model id (names the sidecar); one of {sorted(FAMILIES)}.")
