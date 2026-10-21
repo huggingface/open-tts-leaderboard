@@ -92,20 +92,20 @@ stage_enabled() { [[ " ${STAGES} " == *" $1 "* ]]; }
 # inject_cmd <local_file> <container_dest> → `... &&` snippet recreating the file in the job.
 inject_cmd() {
     local b64
-    b64=$(base64 < "$1" | tr -d '\n')
+    b64=$(base64 -w0 "$1")
     echo "mkdir -p $(dirname "$2") && echo '${b64}' | base64 -d > $2 &&"
 }
 # inject_cmd_gz <local_file> <container_path> → same, but gzipped first, for large payloads: a job
 # body is ONE `bash -c` argument and Linux caps a single argument at 128 KiB (MAX_ARG_STRLEN).
 inject_cmd_gz() {
     local b64
-    b64=$(gzip -9c "$1" | base64 | tr -d '\n')
+    b64=$(gzip -9c "$1" | base64 -w0)
     echo "mkdir -p $(dirname "$2") && echo '${b64}' | base64 -d | gzip -dc > $2 &&"
 }
 # inject_dir <dir_relative_to_repo_root> <container_parent> → `... &&` snippet tar+extracting a dir.
 inject_dir() {
     local b64
-    b64=$(tar --exclude='__pycache__' --exclude='*.pyc' -czf - -C "${REPO_ROOT}" "$1" | base64 | tr -d '\n')
+    b64=$(tar --exclude='__pycache__' --exclude='*.pyc' -czf - -C "${REPO_ROOT}" "$1" | base64 -w0)
     echo "mkdir -p $2 && echo '${b64}' | base64 -d | tar -xzf - -C $2 &&"
 }
 
@@ -169,7 +169,7 @@ _is_transient_job_failure() {
 # Output is tee'd, not buffered, so the chain log still streams `hf jobs run`'s live job logs.
 run_stage() {
     local stage_fn="$1" attempt=1 delay="${STAGE_RETRY_SLEEP}" rc out
-    out="$(mktemp "${TMPDIR:-/tmp}/tts_stage_XXXXXX")"
+    out="$(mktemp "${TMPDIR:-/tmp}/tts_stage_XXXXXX.log")"
     while :; do
         "${stage_fn}" 2>&1 | tee "${out}"
         rc=${PIPESTATUS[0]}
@@ -196,7 +196,7 @@ transcribe_stage() {
     local ASR_OVERWRITE_FLAG=""
     [[ "${ASR_OVERWRITE}" == "true" ]] && ASR_OVERWRITE_FLAG=" --overwrite"
     hf jobs run \
-        --flavor "${ASR_FLAVOR}" --timeout "${ASR_TIMEOUT:-4h}" --secrets HF_TOKEN ${NAMESPACE_ARG} \
+        --flavor "${ASR_FLAVOR}" --timeout 4h --secrets HF_TOKEN ${NAMESPACE_ARG} \
         --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${SCORER_IMAGE}" \
         bash -c "
             ${TRANSCRIBE_INJECT}
@@ -207,7 +207,7 @@ sim_stage() {
     local SIM_OVERWRITE_FLAG=""
     [[ "${SIM_OVERWRITE}" == "true" ]] && SIM_OVERWRITE_FLAG=" --overwrite"
     hf jobs run \
-        --flavor "${SIM_FLAVOR}" --timeout "${SIM_TIMEOUT:-4h}" --secrets HF_TOKEN \
+        --flavor "${SIM_FLAVOR}" --timeout 4h --secrets HF_TOKEN \
         --env PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True" ${NAMESPACE_ARG} \
         --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${SCORER_IMAGE}" \
         bash -c "
@@ -217,21 +217,6 @@ sim_stage() {
 }
 
 # ── Wait for a model's chains, report failures, then sync + score locally ────
-# Use the already-required Python runtime for a portable timeout (macOS has no `timeout`).
-sync_manifests_with_timeout() {
-    python - "${SYNC_TIMEOUT:-600}" "hf://buckets/${RESULTS_BUCKET}/${MODEL_FOLDER}" "./results/${MODEL_FOLDER}" <<'PY'
-import subprocess
-import sys
-try:
-    result = subprocess.run(["hf", "buckets", "sync", sys.argv[2], sys.argv[3],
-                             "--exclude", "*.wav"], timeout=float(sys.argv[1]))
-    sys.exit(result.returncode)
-except subprocess.TimeoutExpired:
-    print("Bucket sync timed out.", file=sys.stderr)
-    sys.exit(124)
-PY
-}
-
 # Uses PIDS/TAGS/CHAIN_LOGS set by run_pipeline. Returns non-zero (and skips scoring) on failure.
 _wait_and_score() {
     local i CHAIN_FAILED=0
@@ -259,12 +244,12 @@ _wait_and_score() {
     mkdir -p "./results/${MODEL_FOLDER}"
     # Only the manifests are needed for scoring; the wavs stay in the bucket. A job's last writes can
     # take a moment to show up in the bucket, so retry until this run's manifests are all present.
-    # A sync can deadlock on a server-closed connection; the portable helper bounds it.
+    # `timeout`: a sync can deadlock on a server-closed connection and would otherwise hang forever.
     local attempt sync_out name
     local -a missing=()
     for attempt in 1 2 3 4 5; do
         sleep 15
-        sync_out=$(sync_manifests_with_timeout 2>&1) ||
+        sync_out=$(timeout "${SYNC_TIMEOUT:-600}" hf buckets sync "hf://buckets/${RESULTS_BUCKET}/${MODEL_FOLDER}" "./results/${MODEL_FOLDER}" --exclude "*.wav" 2>&1) ||
             echo "WARNING: bucket sync failed (attempt ${attempt}/5):"$'\n'"${sync_out}"
         missing=()
         for name in "${MANIFEST_NAMES[@]}"; do
@@ -308,7 +293,7 @@ score_results('$(pwd)/results/${MODEL_FOLDER}', '${MODEL_ID}', language='${lang}
     # Scoring is scoped to THIS run's combos (where each manifest's language is known); list any
     # other manifests in the folder so they don't silently disappear from the summary.
     local unscored
-    unscored=$(find "./results/${MODEL_FOLDER}" -maxdepth 1 -name "MODEL_*.jsonl" -exec basename {} \; 2>/dev/null \
+    unscored=$(find "./results/${MODEL_FOLDER}" -maxdepth 1 -name "MODEL_*.jsonl" -printf "%f\n" 2>/dev/null \
         | grep -vxF "$(printf '%s\n' "${MANIFEST_NAMES[@]}")" || true)
     if [[ -n "${unscored}" ]]; then
         echo "Not scored (not part of this run — use scripts/score_model.py --language <lang>):"
@@ -323,7 +308,7 @@ run_pipeline() {
     LOG_DIR="${BACKEND_DIR}/job_logs"; mkdir -p "${LOG_DIR}"
     NAMESPACE_ARG=""; [ -n "$ORG_NAME" ] && NAMESPACE_ARG="--namespace ${ORG_NAME}"
 
-    local model_cfg cfg PIPELINE_FAILED=0
+    local model_cfg cfg
     for model_cfg in "${MODEL_CONFIGS[@]}"; do
         MODEL_CFG="$model_cfg"                       # full line; generate_stage parses extras
         read -r MODEL_ID _ <<< "$model_cfg"          # MODEL_ID = first whitespace token
@@ -387,7 +372,6 @@ run_pipeline() {
             echo "For live status see: https://huggingface.co/settings/jobs"
         fi
 
-        _wait_and_score || PIPELINE_FAILED=1   # keep going, but report the failed run to callers
+        _wait_and_score || true   # keep going to the next model on failure
     done
-    return "${PIPELINE_FAILED}"
 }
