@@ -3,7 +3,8 @@ Time-to-first-audio probe for the Open TTS Leaderboard (audio.cpp backend).
 
 0xShug0/audio.cpp (https://github.com/0xShug0/audio.cpp) is a ggml C++ runtime whose
 `audiocpp_server` streams many TTS families over an OpenAI-style SSE endpoint. Some are a second
-ENGINE for models the leaderboard already evaluates (VoxCPM2, Supertonic, Pocket TTS, Breeze); the
+ENGINE for models the leaderboard already evaluates (Qwen3-TTS, VoxCPM2, Supertonic,
+Pocket TTS, Breeze, Fish Audio, and Voxtral); the
 rest are only available here (see FAMILIES).
 
     POST /v1/audio/speech  {"model": ..., "input": ..., "stream_format": "sse", "response_format": "pcm"}
@@ -16,8 +17,7 @@ The job runs the server itself: this script installs the model's GGUF package wi
 `audiocpp_server`, and is then a plain HTTP client of it. First audio = the first non-empty
 `speech.audio.delta` reaching the client, so the clock includes the (loopback) transport.
 
-Only families audio.cpp STREAMS are registered. Notably NOT Qwen3-TTS: audio.cpp's qwen3_tts is
-offline-only (model_specs/qwen3_tts.json lists `"modes": ["offline"]`). Some registered families
+Only families audio.cpp STREAMS are registered. Some registered families
 (Supertonic, OmniVoice) "stream" one event per TEXT chunk, so a CV3 sentence arrives as one event;
 the probe reports those as not streaming, which is the honest label. Left out: segment-level,
 clone-only ports (ZipVoice, Sopro), MiraTTS (no published package), PersonaPlex (speech-to-speech).
@@ -53,13 +53,25 @@ AUDIOCPP_DIR = os.environ.get("AUDIOCPP_DIR", "/app")  # binaries of the ghcr.io
 # Leaderboard model id -> how audio.cpp serves it. Request fields mirror the reference backend's
 # defaults (its run_eval.py / the TTFA_TARGETS entry), so only the engine differs.
 FAMILIES = {
+    "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice": {
+        "family": "qwen3_tts",
+        "clone": False,  # reference-audio cloning uses the separate Base checkpoint
+        "package": "qwen3_tts_1_7b_customvoice_bf16",
+        # CustomVoice preset Aiden and 12 frames per stream event.
+        "request": {"voice": "Aiden"},
+        "options": {"stream_frames_per_event": "12"},
+        # The talker takes the English language NAME, as in qwen3tts/run_eval.py; unknown codes pass through.
+        "language": {"zh": "Chinese", "en": "English", "ja": "Japanese", "ko": "Korean", "de": "German",
+                     "fr": "French", "ru": "Russian", "pt": "Portuguese", "es": "Spanish", "it": "Italian"},
+    },
     "openbmb/VoxCPM2": {
         "family": "voxcpm2",
         "package": "voxcpm2_bf16",
         # voxcpm2/run_eval.py: cfg_value 2.0, inference_timesteps 10, no voice (plain TTS).
         # retry_badcase must be off: retrying a finished bad case is offline-only.
+        # The reference emits one codec patch per event, represented here by one frame per event.
         "request": {"guidance_scale": 2.0, "num_inference_steps": 10},
-        "options": {"retry_badcase": "false"},
+        "options": {"retry_badcase": "false", "stream_frames_per_event": "1"},
     },
     "Supertone/supertonic-3": {
         "family": "supertonic",
@@ -83,7 +95,6 @@ FAMILIES = {
         # (filled in main()), cfg 1.0. The streaming chunking is pinned to audio.cpp's defaults
         # because it sets the TTFA floor; it is recorded in the sidecar.
         "request": {"guidance_scale": 1.0},
-        "options": {"stream_frames_per_event": "16", "stream_lookahead_margin": "12"},
         "instructions": {"en": "Speak clearly and naturally.", "zh": "请用清晰自然的语气朗读。"},
         # Prompt-audio cloning is a separate task ("clon") for this family.
         "clone_task": "clon",
@@ -94,6 +105,29 @@ FAMILIES = {
         # omnivoice/run_eval.py: auto voice, num_step 32. One stream event per text chunk.
         "request": {"num_inference_steps": 32},
         "language": True,
+    },
+    "fishaudio/s2-pro": {
+        "family": "fish_audio",
+        "package": "fish_audio_s2_pro_bf16",
+        # The streaming SGLang target uses 2048 tokens, temperature 0.8, top-k 30, and top-p 0.8.
+        "request": {"max_tokens": 2048, "temperature": 0.8, "top_k": 30, "top_p": 0.8},
+    },
+    "microsoft/VibeVoice-1.5B": {
+        "family": "vibevoice",
+        "package": "vibevoice_1_5b_bf16",
+        # VibeVoice 1.5B uses its documented guidance scale of 1.3.
+        "request": {"guidance_scale": 1.3},
+        # A multi-speaker script model: the server rejects text without `Speaker N:` lines.
+        "text_template": "Speaker 1: {}",
+        "reference_text": False,  # speaker conditioning consumes audio, not its transcript
+    },
+    "mistralai/Voxtral-4B-TTS-2603": {
+        "family": "voxtral_tts",
+        "clone": False,
+        "package": "voxtral_4b_tts_2603_bf16",
+        # vLLM-Omni's Voxtral profile: casual_male, 2048 tokens, seven acoustic steps, CFG 1.2.
+        "request": {"voice": "casual_male", "max_tokens": 2048,
+                    "num_inference_steps": 7, "guidance_scale": 1.2},
     },
     # ── Not on the leaderboard: audio.cpp's streaming families, at their documented defaults ──
     "kugelaudio/kugelaudio-0-open": {
@@ -308,12 +342,15 @@ def main(args):
     print(f"audio.cpp server version: {version}, image: {os.environ.get('AUDIOCPP_IMAGE')}")
 
     def _body(text, stream, ref=None):
+        text = cfg.get("text_template", "{}").format(text)
         body = {"model": "probe", "input": text, "seed": args.seed, **cfg.get("request", {})}
         options = dict(cfg.get("options", {}))
         if "instructions" in cfg:
             body["instructions"] = cfg["instructions"].get(args.language, cfg["instructions"]["en"])
         if cfg.get("language"):
-            body["language"] = args.language
+            # True sends the ISO code; a dict maps it to the name the family expects.
+            names = cfg["language"] if isinstance(cfg["language"], dict) else {}
+            body["language"] = names.get(args.language, args.language)
         if ref is not None:
             # The row's own prompt replaces any preset voice, as in the reference backends' clone mode.
             body.pop("voice", None)
