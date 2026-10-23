@@ -37,6 +37,9 @@ from run_eval_utils import (
 MODEL_REVISIONS = {
     "gradium/phonon-31m-en": "92741c5b07d085ff840e26fea8ce43110b87852f",
     "gradium/phonon-40m-en": "cc738b7e4d182c2ba1bafb8062aa4846af000637",
+    "gradium/phonon-40m-fr": "d91086970206b88efd2c88ca971d0628b5968f0f",
+    "gradium/phonon-40m-de": "79cfc7b47fcfc0b666657b981eb366415023a862",
+    "gradium/phonon-40m-es": "f0d2f39c9b58ad4c19a189e3ba989ee4df393cc5",
 }
 
 
@@ -378,8 +381,10 @@ def run_ttfa(args, checkpoint, distribution, hashes, runtime_hashes, quality_roo
 
 
 def main(args):
-    if args.device != "cpu" or args.split != "en":
-        raise ValueError("This q8_0 path supports English CPU only; A100/CUDA TTFA is unavailable.")
+    if args.device != "cpu" or args.split not in ("en", "fr", "de", "es"):
+        raise ValueError("This q8_0 path supports English, French, German and Spanish on CPU only.")
+    if args.ttfa_probe and args.split != "en":
+        raise ValueError("TTFA measures the English split only; A100/CUDA TTFA is unavailable.")
     if getattr(args, "ttfa_mode", "blocking") not in ("blocking", "streaming"):
         raise ValueError("Select blocking or streaming TTFA explicitly.")
     if args.ttfa_probe and (getattr(args, "ttfa_flavor", "cpu-upgrade") != "cpu-upgrade"

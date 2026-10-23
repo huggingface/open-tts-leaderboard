@@ -1,5 +1,5 @@
 #!/bin/bash
-# English, fixed voice. Usage: bash phonon/submit_jobs.sh [model_id ...]
+# English, French, German and Spanish, fixed voice. Usage: bash phonon/submit_jobs.sh [model_id ...]
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common.sh"
 
@@ -12,7 +12,8 @@ STAGE_RETRIES=0
 # h200 would sit idle. Its RTFx is therefore a CPU number, not directly comparable with the h200 models.
 FLAVOR=cpu-upgrade
 PHONON_THREADS="${PHONON_THREADS:-1}"
-supports_language() { [[ "$1" == en ]]; }
+# Each checkpoint speaks one language, the suffix of its name (gradium/phonon-40m-fr: fr).
+supports_language() { [[ "${MODEL_ID##*-}" == "$1" ]]; }
 
 generate_stage() {
     local revision="${PHONON_SEED_DATASET_REVISION:-}" runner command
@@ -40,10 +41,16 @@ generate_stage() {
 DATASET_CONFIGS=(
     "tts en en"
     "zero_shot en en ${CV3_EVAL_PATH}"
+    "zero_shot fr fr ${CV3_EVAL_PATH}"
+    "zero_shot de de ${CV3_EVAL_PATH}"
+    "zero_shot es es ${CV3_EVAL_PATH}"
 )
 MODEL_CONFIGS=(
     "gradium/phonon-31m-en"
     "gradium/phonon-40m-en"
+    "gradium/phonon-40m-fr"
+    "gradium/phonon-40m-de"
+    "gradium/phonon-40m-es"
 )
 [[ $# -eq 0 ]] || MODEL_CONFIGS=("$@")
 
@@ -54,7 +61,10 @@ done
 [[ "$PHONON_THREADS" =~ ^[1-8]$ ]] || fail "Use 1–8 CPU threads."
 [[ "$VOICE_CLONE" == false ]] || fail "Voice cloning is unsupported."
 for model in "${MODEL_CONFIGS[@]}"; do
-    [[ "$model" == gradium/phonon-31m-en || "$model" == gradium/phonon-40m-en ]] || fail "Select a released English checkpoint."
+    case "$model" in
+        gradium/phonon-31m-en|gradium/phonon-40m-en|gradium/phonon-40m-fr|gradium/phonon-40m-de|gradium/phonon-40m-es) ;;
+        *) fail "Select a released checkpoint." ;;
+    esac
 done
 case "${STAGES:-$DEFAULT_STAGES}" in
     generate|"generate transcribe"|"generate transcribe utmos"|transcribe|utmos|"transcribe utmos") ;;
