@@ -198,6 +198,27 @@ run_stage() {
     done
 }
 
+# ── Wait for stage-1 bucket uploads ─────────────────────────────────────────
+# `hf jobs run` can return before the job's /results writes reach the bucket, so stage 2 would read
+# a missing manifest or wavs. Poll until the manifest and every wav it lists are in the bucket.
+BUCKET_WAIT_TIMEOUT="${BUCKET_WAIT_TIMEOUT:-900}"   # seconds
+
+wait_for_bucket() {
+    local rel="${BUCKET_MANIFEST#/results/}" deadline=$((SECONDS + BUCKET_WAIT_TIMEOUT)) want have
+    while (( SECONDS < deadline )); do
+        want=$(hf buckets cp "hf://buckets/${RESULTS_BUCKET}/${rel}" - 2>/dev/null |
+            grep -oE '"(audio|prompt_audio)_filepath": "[^"]+"' | cut -d'"' -f4 | sort -u)
+        if [[ -n "${want}" ]]; then
+            have=$(hf buckets list "${RESULTS_BUCKET}/${MODEL_FOLDER}" -R 2>/dev/null |
+                awk '{print $NF}' | sed "s|^${MODEL_FOLDER}/||" | sort -u)
+            [[ -z "$(comm -23 <(echo "${want}") <(echo "${have}"))" ]] && return 0
+        fi
+        sleep 30
+    done
+    echo "── ${rel}: stage-1 outputs still not in the bucket after ${BUCKET_WAIT_TIMEOUT}s; giving up."
+    return 1
+}
+
 # ── Shared stages 2-4 (identical for every backend) ─────────────────────────
 transcribe_stage() {
     local ASR_OVERWRITE_FLAG=""
@@ -378,7 +399,7 @@ run_pipeline() {
             # aborts the chain on the first failed stage; the waiter reports it from the log.
             (
                 set -e
-                stage_enabled generate   && run_stage generate_stage
+                stage_enabled generate   && run_stage generate_stage && wait_for_bucket
                 stage_enabled transcribe && run_stage transcribe_stage
                 stage_enabled sim && [[ "${CLONE}" == "true" ]] && run_stage sim_stage
                 stage_enabled utmos && utmos_language "${ASR_LANG}" && run_stage utmos_stage
