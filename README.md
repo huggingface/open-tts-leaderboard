@@ -7,6 +7,9 @@ This repository contains the code for the Open TTS Leaderboard. The leaderboard 
 The following datasets are used in the Open TTS Leaderboard:
 1. [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval) (`tts` config): `en` (English) and `zh` (Chinese).
 2. [CV3 Eval](https://github.com/QwenAudio/CV3-Eval): `en`, `zh`, `fr` (French), `es` (Spanish), `ja` (Japanese), `ko` (Korean), `it` (Italian), `de` (German), and `ru` (Russian) (`zero_shot` config, 500 samples per language).
+3. [ZTTS1-Eval](https://github.com/Zyphra/ZTTS1-Eval) ([Zyphra/ztts1_eval](https://huggingface.co/datasets/Zyphra/ztts1_eval), public):
+   - **Clean** (`zero_shot`, FLEURS-R): the 9 CV3 languages plus `hard_en` / `hard_zh` difficult-text splits, scored as English / Chinese.
+   - **In-The-Wild** (`zero_shot_voxblink`, VoxBlink2, 84–120 samples per language): the same 9 languages plus `pt`, `ar`, `hi`, `tr`, `tl`, `pl`, `id`, `th`. Thai is scored with CER. The Tagalog split (`tl`) is transcribed and selected with `ONLY_LANGS` using Qwen3-ASR's code `fil`.
 
 While human preference is the ultimate decider, **arenas cannot scale to keep up with the pace of TTS releases**. To this end, we use objective metrics to evaluate models on complementary aspects of performance:
 
@@ -72,6 +75,14 @@ Unfortunately the licenses of [Seed TTS](https://github.com/BytedanceSpeech/seed
 ```
 Keep the repo names (`seed_tts_eval`, `cv3_eval`) as above, so that `DATASET_NAMESPACE=YOUR_USERNAME` points every job at your copies.
 
+ZTTS1-Eval is public: jobs read `Zyphra/ztts1_eval` directly via `ZTTS1_EVAL_PATH`. To use your own copy:
+
+```bash
+git clone https://github.com/Zyphra/ZTTS1-Eval.git
+python scripts/prepare_ztts1_eval.py YOUR_USERNAME/ztts1_eval
+export ZTTS1_EVAL_PATH=YOUR_USERNAME/ztts1_eval
+```
+
 
 #### 4. Smoke test
 
@@ -118,7 +129,7 @@ flowchart LR
         sim["<b>3. Speaker similarity</b><br/>WavLM-SV · L4"]
     end
 
-    ds[("Private datasets<br/>seed_tts_eval / cv3_eval")]
+    ds[("Datasets<br/>seed_tts_eval / cv3_eval / ztts1_eval")]
     bucket[("RESULTS_BUCKET<br/>wavs + JSONL manifests")]
 
     submit --> gen --> asr -->|voice cloning only| sim
@@ -133,7 +144,7 @@ flowchart LR
 2. **Transcribe** (`transcribe`): [transformers/transcribe.py](transformers/transcribe.py) transcribes the wavs with [Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf), using the split's language as a hint.
 3. **Speaker similarity** (`sim`, voice cloning only): [transformers/score_similarity.py](transformers/score_similarity.py) compares each generated clip with its reference prompt, using the [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval#metrics) speaker-verification model (WavLM-large + ECAPA-TDNN, mirrored [here](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval)).
 4. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
-   - **WER** after text normalization (CER for `zh`, `ja`, `ko`)
+   - **WER** after text normalization (CER for `zh`, `ja`, `ko`, `th`)
    - **RTFx**: total audio duration divided by total generation time, measured in stage 1
    - **SIM**: mean speaker similarity, for voice cloning only
 
@@ -154,6 +165,7 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATASET_NAMESPACE` | `bezzam` | Namespace holding your private `seed_tts_eval` / `cv3_eval` copies |
+| `ZTTS1_EVAL_PATH` | `Zyphra/ztts1_eval` | ZTTS1-Eval dataset repo (public) |
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
 | `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |
@@ -177,6 +189,8 @@ python scripts/score_model.py --model_id hexgrad/Kokoro-82M --language en
 Job logs are written to `<backend>/job_logs/`. Live status is at https://huggingface.co/settings/jobs.
 
 #### Publishing results
+
+The `ztts1*.csv` files must exist in `hf-audio/tts_leaderboard_results` before rows can be published; until then `open_results_pr.py` skips them with a warning.
 
 The leaderboard reads its CSVs from [hf-audio/tts_leaderboard_results](https://huggingface.co/datasets/hf-audio/tts_leaderboard_results) (private dataset). [scripts/open_results_pr.py](scripts/open_results_pr.py) scores the bucket manifests the same way as above and opens a PR on that repo with the model's rows. Without `--open_pr` it is a dry run:
 ```bash
@@ -291,5 +305,12 @@ If you use the Open TTS Leaderboard, please cite it along with the benchmarks it
   author  = {Du, Zhihao and others},
   journal = {arXiv preprint arXiv:2505.17589},
   year    = {2025}
+}
+
+@misc{ztts1eval,
+  title={{ZTTS1-Eval}: A Multilingual, In-the-Wild Zero-Shot TTS Benchmark},
+  author={Zyphra},
+  year={2025},
+  howpublished={\url{https://github.com/Zyphra/ZTTS1-Eval}}
 }
 ```

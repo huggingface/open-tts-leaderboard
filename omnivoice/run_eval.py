@@ -30,6 +30,10 @@ from run_eval_utils import (
 
 torch.set_float32_matmul_precision("high")
 
+# Dataset codes OmniVoice knows under another id: its language list has no bare 'ar', only Arabic
+# varieties, and Modern Standard Arabic is 'arb' (k2-fsa/OmniVoice docs/languages.md).
+LANGUAGE_ID_OVERRIDES = {"ar": "arb"}
+
 
 def main(args):
     # Set seed for reproducibility (diffusion sampling).
@@ -87,7 +91,7 @@ def main(args):
         # OmniVoice pick its own speaker. Returns list[np.ndarray] @ 24kHz.
         gen_kwargs = dict(
             text=list(texts),
-            language=[args.language] * minibatch_size,
+            language=[LANGUAGE_ID_OVERRIDES.get(args.language, args.language)] * minibatch_size,
             num_step=args.num_step,
         )
         if args.voice_clone:

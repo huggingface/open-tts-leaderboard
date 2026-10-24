@@ -4,6 +4,11 @@ import num2words
 from normalizer import EnglishTextNormalizer, BasicMultilingualTextNormalizer
 
 
+# Arabic harakat, tanween, shadda, sukun (U+064B-U+0652) and the dagger alef (U+0670) are optional
+# in Arabic orthography and ASR output usually omits them: drop them on both sides.
+_ARABIC_DIACRITICS = re.compile("[\u064b-\u0652\u0670]")
+
+
 class MultilingualNormalizer(BasicMultilingualTextNormalizer):
     """BasicMultilingualTextNormalizer with optional number normalization.
 
@@ -23,6 +28,8 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
 
     def __call__(self, s, lang=None):
         s = super().__call__(s)
+        if lang == "ar":
+            s = _ARABIC_DIACRITICS.sub("", s)
         if lang is not None:
             s = self._normalize_numbers(s, lang)
         return s

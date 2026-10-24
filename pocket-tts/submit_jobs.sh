@@ -67,7 +67,7 @@ generate_stage() {
 }
 
 # ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment to pick) ──
-# Seed-TTS zh and CV3-Eval ja/ko/ru/zh are omitted: Pocket TTS has no checkpoint for them.
+# Seed-TTS zh and CV3-Eval/ZTTS1-Eval ja/ko/ru/zh are omitted: Pocket TTS has no checkpoint for them.
 DATASET_CONFIGS=(
     "tts en en"
     "zero_shot en en ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
@@ -75,6 +75,19 @@ DATASET_CONFIGS=(
     "zero_shot es es ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
     "zero_shot fr fr ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
     "zero_shot it it ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
+    # ZTTS1-Eval: Clean set (zero_shot; hard_* scored as en/zh) + In-The-Wild set (zero_shot_voxblink).
+    "zero_shot en en ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot hard_en en ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot de de ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot es es ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot fr fr ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot it it ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot_voxblink en en ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot_voxblink de de ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot_voxblink es es ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot_voxblink fr fr ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot_voxblink it it ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot_voxblink pt pt ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
 )
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────

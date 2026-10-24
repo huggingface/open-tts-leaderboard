@@ -12,6 +12,10 @@ Files written (all in that dataset repo):
     seed_tts_voice_clone.csv  Seed-TTS-Eval, cloning each prompt         (WER, RTFx, SIM x2)
     cv3.csv                   CV3-Eval, model's own/default voice        (WER, RTFx + averages)
     cv3_voice_clone.csv       CV3-Eval, cloning each prompt              (WER, RTFx, SIM + averages)
+    ztts1.csv                 ZTTS1-Eval Clean, own/default voice        (WER, RTFx + averages)
+    ztts1_voice_clone.csv     ZTTS1-Eval Clean, cloning each prompt      (WER, RTFx, SIM + averages)
+    ztts1_voxblink.csv         ZTTS1-Eval In-The-Wild, own/default voice  (WER, RTFx + averages)
+    ztts1_voxblink_voice_clone.csv  ZTTS1-Eval In-The-Wild, cloning each prompt (WER, RTFx, SIM + averages)
     streaming.csv             time-to-first-audio, CPU and GPU           (TTFA, RTFx at batch 1)
 
 Nothing is pushed unless --open_pr is passed: the default is a dry run that prints the rows.
@@ -54,6 +58,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)  # so `from normalizer import ...` resolves regardless of cwd
 
 from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download  # noqa: E402
+from huggingface_hub.errors import EntryNotFoundError  # noqa: E402
 
 from normalizer.eval_utils import SIM_BACKEND_SUFFIXES, default_multilingual, score_results  # noqa: E402
 
@@ -92,13 +97,24 @@ class Target:
     voice_clone: which side of the `_voice_clone` split this file publishes.
     xvector_sim: this file also carries the xvector-scale SIM column, which needs a second scoring
         pass (one `score_results` call reports one SIM scale).
+    split_languages: maps variant split names to their scoring language, keeping the original
+        split name as the published column.
     """
 
-    def __init__(self, filename, marker, voice_clone, xvector_sim=False):
+    def __init__(self, filename, marker, voice_clone, xvector_sim=False, split_languages=None):
         self.filename = filename
         self.marker = marker
         self.voice_clone = voice_clone
         self.xvector_sim = xvector_sim
+        self.split_languages = split_languages or {}
+
+    def scoring_language(self, column):
+        """Language `column` (a split name) is normalized as: `split_languages` maps variant
+        splits such as ZTTS1's `hard_en` to their base language; anything else is its own."""
+        return self.split_languages.get(column, column)
+
+
+ZTTS1_HARD_SPLITS = {"hard_en": "en", "hard_zh": "zh"}
 
 
 # Keyed by --targets value; the order here is the order the files are reported and committed in.
@@ -109,6 +125,14 @@ TARGETS = {
     ),
     "cv3": Target("cv3.csv", "cv3_eval_zero_shot_", voice_clone=False),
     "cv3_voice_clone": Target("cv3_voice_clone.csv", "cv3_eval_zero_shot_", voice_clone=True),
+    "ztts1": Target("ztts1.csv", "ztts1_eval_zero_shot_", voice_clone=False, split_languages=ZTTS1_HARD_SPLITS),
+    "ztts1_voice_clone": Target(
+        "ztts1_voice_clone.csv", "ztts1_eval_zero_shot_", voice_clone=True, split_languages=ZTTS1_HARD_SPLITS
+    ),
+    "ztts1_voxblink": Target("ztts1_voxblink.csv", "ztts1_eval_zero_shot_voxblink_", voice_clone=False),
+    "ztts1_voxblink_voice_clone": Target(
+        "ztts1_voxblink_voice_clone.csv", "ztts1_eval_zero_shot_voxblink_", voice_clone=True
+    ),
 }
 
 # streaming.csv is filled from the TTFA sidecars rather than by scoring, so it is not a Target.
@@ -171,6 +195,7 @@ def select_manifests(model_dir, model_safe, target, variant):
     """
     selected, unmatched = {}, []
     prefix = f"MODEL_{model_safe}_DATASET_"
+    longer = [t.marker for t in TARGETS.values() if t.marker != target.marker and target.marker in t.marker]
     for name in sorted(os.listdir(model_dir)):
         if not name.endswith(".jsonl"):
             continue
@@ -179,6 +204,9 @@ def select_manifests(model_dir, model_safe, target, variant):
             continue
         index = stem.find(target.marker)
         if index < 0:
+            continue
+        # e.g. ztts1_eval_zero_shot_ is a prefix of ztts1_eval_zero_shot_voxblink_
+        if any(m in stem for m in longer):
             continue
         rest = stem[index + len(target.marker):]
         is_clone = rest.endswith(CLONE_SUFFIX)
@@ -680,9 +708,9 @@ def main():
     # Languages are pooled across targets: one call scores every manifest of that language,
     # whatever file each ends up in.
     by_language = {}
-    for records in selection.values():
-        for stem, language in records.items():
-            by_language.setdefault(language, set()).add(stem)
+    for key, records in selection.items():
+        for stem, column in records.items():
+            by_language.setdefault(TARGETS[key].scoring_language(column), set()).add(stem)
     scored = {}
     if by_language:
         print(f"Scoring {sum(len(v) for v in by_language.values())} manifest(s) "
@@ -696,8 +724,8 @@ def main():
         for key, records in selection.items():
             if not TARGETS[key].xvector_sim:
                 continue
-            for stem, language in records.items():
-                legacy_by_language.setdefault(language, set()).add(stem)
+            for stem, column in records.items():
+                legacy_by_language.setdefault(TARGETS[key].scoring_language(column), set()).add(stem)
     if legacy_by_language:
         print(f"Scoring {sum(len(v) for v in legacy_by_language.values())} manifest(s) "
               f"[{XVECTOR_BACKEND}, for the legacy SIM column] ...")
@@ -716,7 +744,14 @@ def main():
     updated = {}  # filename -> new content
     for key in [k for k in TARGETS if k in selection]:
         target = TARGETS[key]
-        published = fetch_csv(target.filename, args.hf_token)
+        try:
+            published = fetch_csv(target.filename, args.hf_token)
+        except EntryNotFoundError:
+            sys.stdout.flush()
+            print(f"\nWARNING: {target.filename} does not exist in {RESULTS_REPO}; skipping '{key}'. "
+                  f"Seed it with a header row (model, <split> WER/RTFx[/SIM] columns, avg columns) first.",
+                  file=sys.stderr)
+            continue
         header = published.header
         languages = header_languages(header)
         values, unknown = collect_values(

@@ -38,6 +38,8 @@ DATASET_NAMESPACE="${DATASET_NAMESPACE:-bezzam}"
 DEFAULT_DATASET_PATH="${DATASET_PATH:-${DATASET_NAMESPACE}/seed_tts_eval}"
 # The other eval set — named explicitly by the CV3 lines of a backend's DATASET_CONFIGS.
 CV3_EVAL_PATH="${CV3_EVAL_PATH:-${DATASET_NAMESPACE}/cv3_eval}"
+# ZTTS1-Eval (scripts/prepare_ztts1_eval.py) is public, so jobs read Zyphra's copy directly.
+ZTTS1_EVAL_PATH="${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
 ORG_NAME="${ORG_NAME:-}"
 # Stage-1 (generation) flavor. IMPORTANT: keep this the SAME (h200) for EVERY backend — RTFx is
 # measured on the generation stage, so a uniform GPU is required for RTFx to be comparable across
@@ -80,7 +82,8 @@ SCORER_IMAGE="hf.co/spaces/${SPACE}"
 
 # Datasets: "config split asr_language [dataset_path]". Backends may override before run_pipeline.
 # asr_language is the language hint for Qwen3-ASR (stage 2) and, for backends that take one,
-# for the TTS model too — so it must be a real language code, not a split name.
+# for the TTS model too — so it must be a real language code, not a split name — Qwen3-ASR's code,
+# e.g. `fil` (not `tl`) for ZTTS1-Eval's Tagalog split.
 # The optional 4th field points a single line at a different dataset repo (default:
 # DEFAULT_DATASET_PATH), so one list can mix e.g. Seed-TTS and CV3-Eval combos. It only has to
 # expose the same columns the backends read: `text` + `prompt_text`/`prompt_audio` when cloning.
@@ -334,24 +337,24 @@ run_pipeline() {
             local CFG_DATASET_PATH
             read -r DATASET SPLIT ASR_LANG CFG_DATASET_PATH <<< "$cfg"
             # Per-combo dataset repo (4th field, else the default). DATASET_SAFE feeds the manifest
-            # name, so two datasets that share a config/split name still land in distinct manifests.
+            # and chain-log names, so datasets sharing a config/split still have distinct outputs.
             DATASET_PATH="${CFG_DATASET_PATH:-${DEFAULT_DATASET_PATH}}"
             DATASET_SAFE="${DATASET_PATH//\//-}"
             # Caller-requested subset (ONLY_LANGS), checked before supports_language so the
             # "not supported" message is never printed for a combo the caller simply skipped.
             if [[ -n "${ONLY_LANGS}" && " ${ONLY_LANGS} " != *" ${ASR_LANG} "* ]]; then
-                echo "Skipping ${DATASET}/${SPLIT}: not in ONLY_LANGS='${ONLY_LANGS}'."
+                echo "Skipping ${DATASET_PATH} ${DATASET}/${SPLIT}: not in ONLY_LANGS='${ONLY_LANGS}'."
                 continue
             fi
             # Skip combos the model can't do at all — synthesizing Chinese with an English-only
             # checkpoint produces English-phoneme gibberish and a meaningless (>100%) CER.
             if ! supports_language "${ASR_LANG}"; then
-                echo "Skipping ${DATASET}/${SPLIT}: ${MODEL_ID} does not support language '${ASR_LANG}'."
+                echo "Skipping ${DATASET_PATH} ${DATASET}/${SPLIT}: ${MODEL_ID} does not support language '${ASR_LANG}'."
                 continue
             fi
             BUCKET_MANIFEST="/results/${MODEL_FOLDER}/MODEL_${MODEL_SAFE}_DATASET_${DATASET_SAFE}_${DATASET}_${SPLIT}${MODE_SUFFIX}.jsonl"
-            local CHAIN_LOG="${LOG_DIR}/${MODEL_SAFE}_${DATASET}_${SPLIT}${MODE_SUFFIX}.log"
-            echo "Submitting pipeline: model=${MODEL_ID} dataset=${DATASET} split=${SPLIT}  (log: ${CHAIN_LOG})"
+            local CHAIN_LOG="${LOG_DIR}/${MODEL_SAFE}_${DATASET_SAFE}_${DATASET}_${SPLIT}${MODE_SUFFIX}.log"
+            echo "Submitting pipeline: model=${MODEL_ID} dataset=${DATASET_PATH} config=${DATASET} split=${SPLIT}  (log: ${CHAIN_LOG})"
 
             # Sequential stages in a backgrounded subshell (combos run in parallel). `set -e`
             # aborts the chain on the first failed stage; the waiter reports it from the log.
@@ -362,7 +365,7 @@ run_pipeline() {
                 stage_enabled sim && [[ "${CLONE}" == "true" ]] && run_stage sim_stage
                 true   # ensure subshell exit status is 0 when the last `&&` chain is a skipped stage
             ) > "${CHAIN_LOG}" 2>&1 &
-            PIDS+=("$!"); TAGS+=("${DATASET}/${SPLIT}"); CHAIN_LOGS+=("${CHAIN_LOG}")
+            PIDS+=("$!"); TAGS+=("${DATASET_PATH} ${DATASET}/${SPLIT}"); CHAIN_LOGS+=("${CHAIN_LOG}")
             LANGS+=("${ASR_LANG}"); MANIFEST_NAMES+=("$(basename "${BUCKET_MANIFEST}")")
         done
 

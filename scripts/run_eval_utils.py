@@ -176,9 +176,9 @@ def add_common_args(parser, batch_size=None, voice_clone=None):
     import argparse
 
     parser.add_argument("--dataset_path", type=str, default="bezzam/seed_tts_eval",
-                        help="Dataset repo id (scripts/prepare_seed_tts_eval.py or prepare_cv3_eval.py).")
+                        help="Dataset repo id (scripts/prepare_seed_tts_eval.py, prepare_cv3_eval.py or prepare_ztts1_eval.py).")
     parser.add_argument("--dataset", type=str, default="tts",
-                        help="Dataset config: 'tts' (Seed-TTS) or 'zero_shot' (CV3-Eval).")
+                        help="Dataset config: 'tts' (Seed-TTS), 'zero_shot' (CV3-Eval / ZTTS1-Eval Clean) or 'zero_shot_voxblink' (ZTTS1-Eval In-The-Wild).")
     parser.add_argument("--split", type=str, default="en", help="Split / language, e.g. 'en'.")
     parser.add_argument("--text_column", type=str, default="text",
                         help="Column holding the target text to synthesize (the WER reference).")

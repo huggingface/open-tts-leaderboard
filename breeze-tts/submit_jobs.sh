@@ -54,6 +54,13 @@ DATASET_CONFIGS=(
     "tts zh zh"
     "zero_shot en en ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
     "zero_shot zh zh ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
+    # ZTTS1-Eval: Clean set (zero_shot; hard_* scored as en/zh) + In-The-Wild set (zero_shot_voxblink).
+    "zero_shot en en ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot zh zh ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot hard_en en ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot hard_zh zh ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot_voxblink en en ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
+    "zero_shot_voxblink zh zh ${ZTTS1_EVAL_PATH:-Zyphra/ztts1_eval}"
 )
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
