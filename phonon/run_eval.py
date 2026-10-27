@@ -2,7 +2,10 @@
 
 Follows paradee/run_eval.py's serial generation and common manifest conventions.
 Downloads a pinned public Q8 checkpoint, or accepts an existing local checkpoint.
-CPU completion timing is diagnostic, not official H200 RTFx. No cloning/SIM.
+CPU completion timing is diagnostic, not official H200 RTFx.
+Voice cloning (`--voice_clone`) conditions each row on a precomputed voice file for its reference
+clip: the speaker encoder is not part of the released checkpoints. The files are pinned like the
+checkpoints, and each is checked against the SHA-256 of the clip it was computed from.
 The separate TTFA path measures 500 CV3 English requests on cpu-upgrade,
 using the blocking API by default or an explicitly selected streaming API.
 """
@@ -21,6 +24,7 @@ import sys
 import time
 import wave
 from pathlib import Path
+from types import SimpleNamespace
 
 from run_eval_utils import (
     add_common_args,
@@ -35,9 +39,17 @@ from run_eval_utils import (
 
 
 MODEL_REVISIONS = {
-    "gradium/phonon-31m-en": "52433c46975bfa13144c56204c9f4ee1c5b148aa",
-    "gradium/phonon-40m-en": "9b95393286eaeeebf1330b2ae90a14a2074c415d",
+    "gradium/phonon-31m-en": "92741c5b07d085ff840e26fea8ce43110b87852f",
+    "gradium/phonon-40m-en": "cc738b7e4d182c2ba1bafb8062aa4846af000637",
+    "gradium/phonon-40m-fr": "d91086970206b88efd2c88ca971d0628b5968f0f",
+    "gradium/phonon-40m-de": "79cfc7b47fcfc0b666657b981eb366415023a862",
+    "gradium/phonon-40m-es": "f0d2f39c9b58ad4c19a189e3ba989ee4df393cc5",
 }
+
+# Voice cloning: voices/<SHA-256 of a reference clip>.safetensors holds that clip's speaker latents,
+# and index.json maps "<dataset>/<config>/<split>" to {row id: SHA-256}.
+CLONE_VOICES_REPO = "gradium/phonon-leaderboard-clone-voices"
+CLONE_VOICES_REVISION = "3f2a9ece98f4296c57db4f797591a9e021ee11a9"
 
 
 def file_hash(path):
@@ -377,9 +389,31 @@ def run_ttfa(args, checkpoint, distribution, hashes, runtime_hashes, quality_roo
     return sidecar
 
 
+def load_clone_voices(args):
+    """This split's voice files and row index, downloaded at the pinned revision."""
+    from huggingface_hub import hf_hub_download, snapshot_download
+
+    revision = args.clone_voices_revision or CLONE_VOICES_REVISION
+    if not revision or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("Supply an immutable clone voices revision.")
+    split = f"{args.dataset_path.split('/')[-1]}/{args.dataset}/{args.split}"
+    index_path = hf_hub_download(args.clone_voices_repo, "index.json", repo_type="dataset", revision=revision)
+    keys = json.loads(Path(index_path).read_text()).get(split)
+    if not keys:
+        raise ValueError(f"The clone voices have no rows for {split}.")
+    root = snapshot_download(args.clone_voices_repo, repo_type="dataset", revision=revision,
+                             allow_patterns=[f"voices/{key}.safetensors" for key in sorted(set(keys.values()))])
+    return SimpleNamespace(keys=keys, root=Path(root), provenance={
+        "repo": args.clone_voices_repo, "revision": revision, "index_sha256": file_hash(index_path)})
+
+
 def main(args):
-    if args.device != "cpu" or args.split != "en":
-        raise ValueError("This q8_0 path supports English CPU only; A100/CUDA TTFA is unavailable.")
+    if args.voice_clone and (args.ttfa_probe or args.voice != "default"):
+        raise ValueError("Voice cloning replaces the preset voice and has no TTFA path.")
+    if args.device != "cpu" or args.split not in ("en", "fr", "de", "es"):
+        raise ValueError("This q8_0 path supports English, French, German and Spanish on CPU only.")
+    if args.ttfa_probe and args.split != "en":
+        raise ValueError("TTFA measures the English split only; A100/CUDA TTFA is unavailable.")
     if getattr(args, "ttfa_mode", "blocking") not in ("blocking", "streaming"):
         raise ValueError("Select blocking or streaming TTFA explicitly.")
     if args.ttfa_probe and (getattr(args, "ttfa_flavor", "cpu-upgrade") != "cpu-upgrade"
@@ -463,8 +497,9 @@ def main(args):
     for path in (output_root / "results", output_root / "results" / args.model_id.replace("/", "-")):
         if path.is_symlink():
             raise ValueError("Existing output directories must not be symlinks.")
+    clone = load_clone_voices(args) if args.voice_clone else None
     os.chdir(output_root)
-    paths = output_paths(args)
+    paths = output_paths(args, "_voice_clone" if clone else "")
     manifest_path = Path(paths.manifest_path)
     provenance_path = manifest_path.with_suffix(".run.json")
     attempt_path = manifest_path.with_suffix(".lock")
@@ -481,6 +516,8 @@ def main(args):
                      ("voice", "temperature", "seed", "eos_threshold", "rewrites", "conditions", "threads")},
         "device": "cpu", "quant": "q8_0", "official_h200_rtfx": False,
     }
+    if clone:
+        provenance["clone_voices"] = clone.provenance
     if manifest_path.exists() and not args.resume:
         raise FileExistsError("Existing manifest: inspect it before explicitly resuming.")
     if provenance_path.exists():
@@ -503,7 +540,12 @@ def main(args):
         dataset = dataset.select(range(min(args.max_eval_samples, len(dataset))))
     if "id" not in dataset.column_names:
         dataset = dataset.add_column("id", list(range(len(dataset))))
-    dataset = dataset.select_columns(["id", args.text_column])
+    dataset = dataset.select_columns(["id", args.text_column] + (["prompt_audio"] if clone else []))
+    if clone:
+        from datasets import Audio
+
+        # The reference clip's own bytes: hashed against its voice file, and kept for SIM.
+        dataset = dataset.cast_column("prompt_audio", Audio(decode=False))
     if not len(dataset):
         raise ValueError("The selected dataset contains no samples.")
     done = load_done_entries(str(manifest_path), args.resume)
@@ -511,7 +553,7 @@ def main(args):
         entries = [json.loads(line) for line in manifest_path.read_text().splitlines() if line.strip()]
         if len(entries) != len(done):
             raise ValueError("Existing manifest contains duplicate or invalid paths.")
-    rows = {}
+    rows, prompts = {}, {}
     for row in dataset:
         sample_id, text = str(row["id"]), row[args.text_column]
         if "/" in sample_id or "\\" in sample_id or not isinstance(text, str) or not text.strip():
@@ -520,6 +562,12 @@ def main(args):
         if relative in rows:
             raise ValueError("Dataset IDs must be unique.")
         rows[relative] = text
+        if clone:
+            clip = row["prompt_audio"]["bytes"]
+            if not clip or clone.keys.get(sample_id) != hashlib.sha256(clip).hexdigest():
+                raise ValueError(f"Row {sample_id}'s reference clip is not the one its voice was computed from.")
+            prompts[relative] = (os.path.join(paths.dataset_dir_name, "prompts", f"prompt_{sample_id}.wav"),
+                                 clip, clone.keys[sample_id])
     if not set(done) <= set(rows):
         raise ValueError("Existing manifest differs from the selected dataset rows.")
     for relative, entry in done.items():
@@ -539,10 +587,21 @@ def main(args):
         attempt.write(str(os.getpid()))
 
     tts = load_tts(args, checkpoint, distribution, mimi["sample_rate"])
+    registered = set()
 
-    def synth_one(text):
+    def voice_for(relative):
+        """The preset voice, or this row's reference voice (registered on first use, untimed)."""
+        if not clone:
+            return args.voice
+        key = prompts[relative][2]
+        if key not in registered:
+            tts.add_voice(key, str(clone.root / "voices" / f"{key}.safetensors"))
+            registered.add(key)
+        return key
+
+    def synth_one(text, voice):
         start = time.perf_counter()
-        audio = tts.synth(text, voice=args.voice, temperature=args.temperature,
+        audio = tts.synth(text, voice=voice, temperature=args.temperature,
                           seed=args.seed, cfg_coef=None)
         elapsed = time.perf_counter() - start
         if not math.isfinite(elapsed) or elapsed <= 0:
@@ -551,13 +610,19 @@ def main(args):
 
     # Repeat the first text for untimed warmups; continuation reuses prior warmups.
     for _ in range(0 if done else args.warmup_steps):
-        synth_one(pending[0][1])
+        synth_one(pending[0][1], voice_for(pending[0][0]))
     with open_manifest(str(manifest_path), done) as manifest:
         for relative, text in pending:
-            audio, elapsed = synth_one(text)  # raw text, including brackets/whitespace
+            audio, elapsed = synth_one(text, voice_for(relative))  # raw text, including brackets/whitespace
             target = Path(paths.model_dir) / relative
             duration = write_audio(target, audio, tts.sample_rate)
-            entry = manifest_entry(relative, duration, elapsed, text)
+            prompt_path = None
+            if clone:
+                # SIM compares the output with this reference clip, written unchanged.
+                prompt_path, clip, _ = prompts[relative]
+                (Path(paths.model_dir) / prompt_path).parent.mkdir(exist_ok=True)
+                (Path(paths.model_dir) / prompt_path).write_bytes(clip)
+            entry = manifest_entry(relative, duration, elapsed, text, prompt_audio_filepath=prompt_path)
             entry.update(device="cpu", cpu_generation_time_s=elapsed, official_h200_rtfx=False,
                          timing_scope="generation_complete", audio_sha256=file_hash(target))
             write_entry(manifest, entry)
@@ -565,7 +630,7 @@ def main(args):
             os.fsync(manifest.fileno())
     attempt_path.unlink()
     print("Stage 1 complete; CPU timing is diagnostic, not official H200 RTFx.")
-    print_next_steps(voice_clone=False)
+    print_next_steps(voice_clone=bool(clone))
 
 
 if __name__ == "__main__":
@@ -587,6 +652,8 @@ if __name__ == "__main__":
     parser.add_argument("--ttfa_mode", choices=("blocking", "streaming"), default="blocking",
                         help="TTFA API path; streaming measures first chunks through ptts.TTS.stream.")
     parser.add_argument("--ttfa_text_sha256", help="Optional expected ordered CV3 ID/raw-text SHA256.")
-    add_common_args(parser)
+    parser.add_argument("--clone_voices_repo", default=CLONE_VOICES_REPO, help="Dataset repo of reference voice files.")
+    parser.add_argument("--clone_voices_revision", help="Immutable commit of it; defaults to the evaluated one.")
+    add_common_args(parser, voice_clone=False)
     parser.set_defaults(device="cpu", dataset_path=None, seed=4242424242424242)
     main(parser.parse_args())
