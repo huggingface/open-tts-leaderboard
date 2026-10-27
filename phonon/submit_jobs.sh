@@ -45,6 +45,8 @@ generate_stage() {
 DATASET_CONFIGS=(
     "tts en en"
     "zero_shot en en ${CV3_EVAL_PATH}"
+    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
+    "tts en en ${MINIMAX_EVAL_PATH}"
 )
 MODEL_CONFIGS=(
     "gradium/phonon-31m-en"

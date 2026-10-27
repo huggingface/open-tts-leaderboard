@@ -53,6 +53,9 @@ MAX_EVAL_SAMPLES="${MAX_EVAL_SAMPLES:--1}"   # -1 = all; set e.g. 8 to smoke-tes
 # Restrict a run to some of the backend's DATASET_CONFIGS: space-separated asr_language codes
 # (field 3 of a config line), e.g. ONLY_LANGS="de". Empty (default) runs every configured combo.
 ONLY_LANGS="${ONLY_LANGS:-}"
+# Same, by dataset repo name (the part after the namespace), e.g. ONLY_DATASETS="minimax_eval" or
+# "seed_tts_eval cv3_eval". Combines with ONLY_LANGS.
+ONLY_DATASETS="${ONLY_DATASETS:-}"
 ASR_BATCH_SIZE="${ASR_BATCH_SIZE:-32}"       # ASR minibatch (lower if it OOMs)
 SIM_BATCH_SIZE="${SIM_BATCH_SIZE:-32}"       # SIM minibatch (ignored by the wavlm_seed_tts backend)
 # Speaker-similarity embedder. 'xvector': WavLMForXVector (wavlm-base-plus-sv) — cheap but poorly
@@ -360,8 +363,12 @@ run_pipeline() {
             # name, so two datasets that share a config/split name still land in distinct manifests.
             DATASET_PATH="${CFG_DATASET_PATH:-${DEFAULT_DATASET_PATH}}"
             DATASET_SAFE="${DATASET_PATH//\//-}"
-            # Caller-requested subset (ONLY_LANGS), checked before supports_language so the
-            # "not supported" message is never printed for a combo the caller simply skipped.
+            # Caller-requested subset (ONLY_DATASETS / ONLY_LANGS), checked before supports_language so
+            # the "not supported" message is never printed for a combo the caller simply skipped.
+            if [[ -n "${ONLY_DATASETS}" && " ${ONLY_DATASETS} " != *" ${DATASET_PATH##*/} "* ]]; then
+                echo "Skipping ${DATASET_PATH##*/}/${DATASET}/${SPLIT}: not in ONLY_DATASETS='${ONLY_DATASETS}'."
+                continue
+            fi
             if [[ -n "${ONLY_LANGS}" && " ${ONLY_LANGS} " != *" ${ASR_LANG} "* ]]; then
                 echo "Skipping ${DATASET}/${SPLIT}: not in ONLY_LANGS='${ONLY_LANGS}'."
                 continue
@@ -373,8 +380,10 @@ run_pipeline() {
                 continue
             fi
             BUCKET_MANIFEST="/results/${MODEL_FOLDER}/MODEL_${MODEL_SAFE}_DATASET_${DATASET_SAFE}_${DATASET}_${SPLIT}${MODE_SUFFIX}.jsonl"
-            local CHAIN_LOG="${LOG_DIR}/${MODEL_SAFE}_${DATASET}_${SPLIT}${MODE_SUFFIX}.log"
-            echo "Submitting pipeline: model=${MODEL_ID} dataset=${DATASET} split=${SPLIT}  (log: ${CHAIN_LOG})"
+            # The dataset repo name is in the log name: Seed-TTS and MiniMax share the `tts` config and
+            # split names, and their combos run in parallel.
+            local CHAIN_LOG="${LOG_DIR}/${MODEL_SAFE}_${DATASET_PATH##*/}_${DATASET}_${SPLIT}${MODE_SUFFIX}.log"
+            echo "Submitting pipeline: model=${MODEL_ID} dataset=${DATASET_PATH##*/}/${DATASET} split=${SPLIT}  (log: ${CHAIN_LOG})"
 
             # Sequential stages in a backgrounded subshell (combos run in parallel). `set -e`
             # aborts the chain on the first failed stage; the waiter reports it from the log.
@@ -386,7 +395,7 @@ run_pipeline() {
                 stage_enabled utmos && utmos_language "${ASR_LANG}" && run_stage utmos_stage
                 true   # ensure subshell exit status is 0 when the last `&&` chain is a skipped stage
             ) > "${CHAIN_LOG}" 2>&1 &
-            PIDS+=("$!"); TAGS+=("${DATASET}/${SPLIT}"); CHAIN_LOGS+=("${CHAIN_LOG}")
+            PIDS+=("$!"); TAGS+=("${DATASET_PATH##*/}/${DATASET}/${SPLIT}"); CHAIN_LOGS+=("${CHAIN_LOG}")
             LANGS+=("${ASR_LANG}"); MANIFEST_NAMES+=("$(basename "${BUCKET_MANIFEST}")")
         done
 

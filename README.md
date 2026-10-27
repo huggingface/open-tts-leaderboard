@@ -168,6 +168,7 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
 | `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |
+| `ONLY_DATASETS` | (all) | Only run the configured splits of these dataset repos (name after the namespace), e.g. `"minimax_eval"` |
 | `STAGES` | `generate transcribe sim utmos` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs |
 | `VOICE_CLONE` | `false` | Clone the prompt speaker (backends that support both modes) |
 | `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. **Set `SIM_OVERWRITE=true` after regenerating audio**, otherwise old SIM scores are carried over |

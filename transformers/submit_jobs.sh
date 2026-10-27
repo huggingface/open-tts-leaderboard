@@ -52,44 +52,60 @@ generate_stage() {
         "
 }
 
-# english only
+# ── Languages each model can speak (by model id). run_pipeline skips every DATASET_CONFIGS combo whose
+# language the model being run does not support, so the one list below serves every model.
+TRANSFORMERS_DEFAULT_LANGUAGES="en"   # any model not listed
+declare -A TRANSFORMERS_LANGUAGES=(
+    ["vibevoice/VibeVoice-1.5B-hf"]="en zh"
+    ["vibevoice/VibeVoice-7B-hf"]="en zh"
+    ["bosonai/higgs-tts-2-3b-base"]="en zh de ko"
+    # The 10 speech-output languages of the model card.
+    ["Qwen/Qwen3-Omni-30B-A3B-Instruct"]="en zh fr de ru it es pt ja ko"
+    # run_eval.py's SEAMLESS_LANGUAGE_CODES (speech output) that some dataset below has.
+    ["facebook/seamless-m4t-v2-large"]="en zh ja ko fr de es it pt ru nl pl cs ro fi tr ar hi id th vi"
+)
+supports_language() {
+    [[ " ${TRANSFORMERS_LANGUAGES[${MODEL_ID}]:-${TRANSFORMERS_DEFAULT_LANGUAGES}} " == *" $1 "* ]]
+}
+
+# ── Datasets: "config split asr_language [dataset_path]" — every split; supports_language picks per model ──
 DATASET_CONFIGS=(
     "tts en en"
+    "tts zh zh"
     "zero_shot en en ${CV3_EVAL_PATH}"
+    "zero_shot zh zh ${CV3_EVAL_PATH}"
+    "zero_shot ja ja ${CV3_EVAL_PATH}"
+    "zero_shot ko ko ${CV3_EVAL_PATH}"
+    "zero_shot fr fr ${CV3_EVAL_PATH}"
+    "zero_shot de de ${CV3_EVAL_PATH}"
+    "zero_shot es es ${CV3_EVAL_PATH}"
+    "zero_shot it it ${CV3_EVAL_PATH}"
+    "zero_shot ru ru ${CV3_EVAL_PATH}"
+    # MiniMax multilingual (100 sentences/language). No `uk`: Qwen3-ASR has no Ukrainian.
+    "tts en en ${MINIMAX_EVAL_PATH}"
+    "tts zh zh ${MINIMAX_EVAL_PATH}"
+    "tts yue yue ${MINIMAX_EVAL_PATH}"
+    "tts ja ja ${MINIMAX_EVAL_PATH}"
+    "tts ko ko ${MINIMAX_EVAL_PATH}"
+    "tts fr fr ${MINIMAX_EVAL_PATH}"
+    "tts de de ${MINIMAX_EVAL_PATH}"
+    "tts es es ${MINIMAX_EVAL_PATH}"
+    "tts it it ${MINIMAX_EVAL_PATH}"
+    "tts pt pt ${MINIMAX_EVAL_PATH}"
+    "tts ru ru ${MINIMAX_EVAL_PATH}"
+    "tts nl nl ${MINIMAX_EVAL_PATH}"
+    "tts pl pl ${MINIMAX_EVAL_PATH}"
+    "tts cs cs ${MINIMAX_EVAL_PATH}"
+    "tts ro ro ${MINIMAX_EVAL_PATH}"
+    "tts el el ${MINIMAX_EVAL_PATH}"
+    "tts fi fi ${MINIMAX_EVAL_PATH}"
+    "tts tr tr ${MINIMAX_EVAL_PATH}"
+    "tts ar ar ${MINIMAX_EVAL_PATH}"
+    "tts hi hi ${MINIMAX_EVAL_PATH}"
+    "tts id id ${MINIMAX_EVAL_PATH}"
+    "tts th th ${MINIMAX_EVAL_PATH}"
+    "tts vi vi ${MINIMAX_EVAL_PATH}"
 )
-
-# # english and chinese (Vibevoice)
-# DATASET_CONFIGS=(
-#     "tts en en"
-#     "zero_shot en en ${CV3_EVAL_PATH}"
-#     "tts zh zh"
-#     "zero_shot zh zh ${CV3_EVAL_PATH}"
-# )
-
-# # facebook/seamless-m4t-v2-large and qwen3 omni
-# DATASET_CONFIGS=(
-#     "tts en en"
-#     "tts zh zh"
-#     "zero_shot en en ${CV3_EVAL_PATH}"
-#     "zero_shot fr fr ${CV3_EVAL_PATH}"
-#     "zero_shot es es ${CV3_EVAL_PATH}"
-#     "zero_shot zh zh ${CV3_EVAL_PATH}"
-#     "zero_shot ja ja ${CV3_EVAL_PATH}"
-#     "zero_shot ko ko ${CV3_EVAL_PATH}"
-#     "zero_shot de de ${CV3_EVAL_PATH}"
-#     "zero_shot it it ${CV3_EVAL_PATH}"
-#     "zero_shot ru ru ${CV3_EVAL_PATH}"
-# )
-
-# # bosonai/higgs-tts-2-3b-base 32
-# DATASET_CONFIGS=(
-#     "tts en en"
-#     "tts zh zh"
-#     "zero_shot en en ${CV3_EVAL_PATH}"
-#     "zero_shot de de ${CV3_EVAL_PATH}"
-#     "zero_shot zh zh ${CV3_EVAL_PATH}"
-#     "zero_shot ko ko ${CV3_EVAL_PATH}"
-# )
 
 # ── Models: "model_id batch_size max_new_tokens" (max_new_tokens optional; CLI args override) ──
 MODEL_CONFIGS=(
