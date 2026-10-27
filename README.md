@@ -13,7 +13,7 @@ While human preference is the ultimate decider, **arenas cannot scale to keep up
 1. **Intelligibility**: word/character error rate (WER and CER) between the target text and the generated audio's transcript, using [Qwen3 ASR](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf) (top ranking open-source model on the [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard)).
 2. **Speed**: inverse real-time factor (RTFx) for batched offline inference on an H200 GPU, and time-to-first-audio (TTFA) for quantifying streaming batch size 1 latency on an A100 GPU and CPU.
 3. **Speaker similarity** by computing the cosine similarity (SIM) between [WavLM speaker embeddings](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval) of the generated audio and the reference clip. Note that not all models support voice cloning, so those models are omitted from this evaluation.
-4. **Naturalness**: predicted MOS (1-5) with [UTMOS22 strong](https://github.com/tarepan/SpeechMOS) (UTMOS). UTMOS22 is trained on English only, so it is reported for `en` only.
+4. **Naturalness**: predicted MOS (1-5) with [UTMOS22 strong](https://github.com/tarepan/SpeechMOS) (UTMOS). UTMOS22 is trained on English only, so it is reported for `en` only. An optional [KOMOS](https://github.com/upskyy/komos) pilot reports Korean predicted MOS for `ko`, separately from UTMOS and without affecting averages or ranking.
 
 By relying on objective metrics **evaluating a model drops from a couple weeks (for collecting votes) to a couple hours** ⚡
 
@@ -105,7 +105,7 @@ facebook/seamless-m4t-v2-large: RTFx = 21.19
 
 Each model family has its own folder (e.g. [kokoro/](kokoro/), [voxcpm2/](voxcpm2/), [transformers/](transformers/)) with a `submit_jobs.sh` that is run **locally** and submits HF Jobs to HF servers. The orchestration shared by all backends lives in [scripts/tts_jobs_common.sh](scripts/tts_jobs_common.sh).
 
-For each (model, dataset split) pair, the pipeline runs four sequential HF Jobs (three if the model is not voice cloning), followed by scoring on your machine. The splits of a model run in parallel; models run one after another.
+For each (model, dataset split) pair, the pipeline runs four sequential HF Jobs (three if the model is not voice cloning), followed by scoring on your machine. An opt-in `komos` job can also score Korean audio. The splits of a model run in parallel; models run one after another.
 
 ```mermaid
 flowchart LR
@@ -119,6 +119,7 @@ flowchart LR
         asr["<b>2. Transcribe</b><br/>Qwen3-ASR · L4"]
         sim["<b>3. Speaker similarity</b><br/>WavLM-SV · L4"]
         utmos["<b>4. UTMOS</b><br/>UTMOS22 · L4"]
+        komos["<b>Optional: KOMOS</b><br/>Korean MOS · L4"]
     end
 
     ds[("Private datasets<br/>seed_tts_eval / cv3_eval")]
@@ -126,11 +127,13 @@ flowchart LR
 
     submit --> gen --> asr -->|voice cloning only| sim --> utmos
     asr --> utmos
+    asr -->|optional, Korean only| komos
     ds --> gen
     gen -->|wavs + manifest| bucket
     asr <-->|pred_text| bucket
     sim <-->|sim| bucket
     utmos -->|UTMOS_*.json| bucket
+    komos -->|KOMOS_*.json| bucket
     bucket -->|manifests only| score
 ```
 
@@ -138,13 +141,15 @@ flowchart LR
 2. **Transcribe** (`transcribe`): [transformers/transcribe.py](transformers/transcribe.py) transcribes the wavs with [Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf), using the split's language as a hint.
 3. **Speaker similarity** (`sim`, voice cloning only): [transformers/score_similarity.py](transformers/score_similarity.py) compares each generated clip with its reference prompt, using the [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval#metrics) speaker-verification model (WavLM-large + ECAPA-TDNN, mirrored [here](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval)).
 4. **UTMOS** (`utmos`, `UTMOS_LANGS` only): [transformers/score_utmos.py](transformers/score_utmos.py) predicts a MOS for each wav with UTMOS22 strong.
-5. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
+5. **KOMOS** (`komos`, opt-in, `KOMOS_LANGS` only): [transformers/score_komos.py](transformers/score_komos.py) scores Korean audio with `komos==0.0.2` and a pinned checkpoint in an isolated environment.
+6. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
    - **WER** after text normalization (CER for `zh`, `ja`, `ko`)
    - **RTFx**: total audio duration divided by total generation time, measured in stage 1
    - **SIM**: mean speaker similarity, for voice cloning only
    - **UTMOS**: mean predicted MOS
+   - **KOMOS**: Korean-only mean over successfully scored files, with coverage and model provenance; no composite average
 
-The stages are separate jobs because the TTS, ASR and speaker-similarity models have conflicting dependencies: stage 1 uses the backend's own Docker Space image, and stages 2-4 share [bezzam/evals](https://huggingface.co/spaces/bezzam/evals).
+The stages are separate jobs because the TTS, ASR and speaker-similarity models have conflicting dependencies: stage 1 uses the backend's own Docker Space image, and stages 2-4 share [bezzam/evals](https://huggingface.co/spaces/bezzam/evals). The optional KOMOS job uses that image to create a fresh Python virtual environment and install `komos==0.0.2` (Python >=3.10, PyTorch 2.8.0 (CUDA 12.8 wheels, matching the shared image) and Transformers >=5.14.1,<5.17), leaving the other stages' dependencies unchanged. The job bootstraps `uv` to create the environment without requiring Ubuntu's optional `python3-venv` package.
 
 | Stage | Flavor | Hardware |
 |---|---|---|
@@ -152,6 +157,7 @@ The stages are separate jobs because the TTS, ASR and speaker-similarity models 
 | 2. Transcribe | `l4x1` | 1x Nvidia L4 (24 GB) |
 | 3. Speaker similarity | `l4x1` | 1x Nvidia L4 (24 GB) |
 | 4. UTMOS | `l4x1` | 1x Nvidia L4 (24 GB) |
+| Optional KOMOS | `l4x1` | 1x Nvidia L4 (24 GB); CPU supported via the local CLI |
 
 RTFx is measured in stage 1, so every model is generated on the **same** flavor (`h200`); don't override `FLAVOR` in a backend. See the [HF Jobs documentation](https://huggingface.co/docs/huggingface_hub/main/en/guides/jobs#select-the-hardware) for pricing.
 
@@ -165,7 +171,10 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
 | `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |
-| `STAGES` | `generate transcribe sim utmos` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs |
+| `STAGES` | `generate transcribe sim utmos` | Subset of stages; add `komos` for the Korean pilot, or use `"komos"` to re-score existing wavs |
+| `KOMOS_LANGS` | `ko` | Split language codes eligible for the KOMOS job; publication remains Korean-only |
+| `KOMOS_OVERWRITE` | `false` | Discard cached KOMOS scores; forced when `generate` also runs |
+| `KOMOS_FLAVOR` / `KOMOS_DEVICE` | `l4x1` / `cuda:0` | Hardware and PyTorch device for the optional KOMOS job |
 | `VOICE_CLONE` | `false` | Clone the prompt speaker (backends that support both modes) |
 | `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. **Set `SIM_OVERWRITE=true` after regenerating audio**, otherwise old SIM scores are carried over |
 | `ORG_NAME` | (none) | Run the jobs under an organization's namespace |
@@ -181,6 +190,49 @@ VOICE_CLONE=true bash transformers/submit_jobs.sh "vibevoice/VibeVoice-1.5B-hf 3
 # re-score a local copy of the manifests, e.g. for one language
 python scripts/score_model.py --model_id hexgrad/Kokoro-82M --language en
 ```
+
+### Korean KOMOS pilot
+
+Re-score existing Korean results without regeneration:
+
+```bash
+STAGES="komos" ONLY_LANGS="ko" MAX_EVAL_SAMPLES=8 bash omnivoice/submit_jobs.sh
+# Include the diagnostic in a full run:
+STAGES="generate transcribe sim utmos komos" ONLY_LANGS="ko" bash omnivoice/submit_jobs.sh
+```
+
+For a local CPU smoke test, install KOMOS in its own environment and point at a Korean
+manifest whose relative `audio_filepath` entries resolve to generated wavs:
+
+```bash
+uv run --no-project --with komos==0.0.2 python transformers/score_komos.py \
+  --manifest_paths results/<model>/MODEL_..._ko.jsonl --max_rows 8 --device cpu
+```
+
+The scorer writes `KOMOS_<manifest stem>.json` beside the read-only manifest (or under
+`--output_dir`). It resumes completed files, records clips shorter than 0.1 seconds as
+`null`, and retries missing/unreadable files on the next run. `--overwrite` (or
+`KOMOS_OVERWRITE=true` for jobs) is required after regenerating audio or changing
+preprocessing/model provenance. `--save_every` controls atomic checkpoint saves.
+
+`score_long_form()` evaluates duration-weighted, non-overlapping 10-second windows,
+then calibrates to the 1–5 scale. Like the other metrics, the job evaluates the first
+`MAX_AUDIO_SECONDS` seconds (default 30, at most 60 for KOMOS). `0` disables clipping;
+files over 60 seconds then fail explicitly and must be split externally. This is a
+Korean diagnostic, not a cross-language replacement for UTMOS.
+
+`score_results` reads the sidecar for Korean plain and SIM-fork manifests.
+`scripts/open_results_pr.py` adds `ko KOMOS`, `ko KOMOS samples` and `ko KOMOS model`
+columns to the CV3 tables only when scores exist. The model cell records the checkpoint
+revision, package version and preprocessing policy. No `avg KOMOS` or rank input is
+added. Sidecars sync from the normal results bucket; `--komos_bucket` can override
+their source. The same language-gated stage works with MiniMax Korean manifests when
+that evaluation set is integrated (#7); this PR does not add MiniMax dataset plumbing.
+
+An L4 is the proposed job default; validate runtime/memory on a small Korean split
+before launching full GPU evaluations. Local CPU validation does not establish L4
+performance. Run the download-free regression suite with
+`uv run --no-project --with pytest --with numpy --with soundfile --with kaldialign --with num2words --with zhconv --with huggingface_hub python -m pytest tests -q`.
 
 Job logs are written to `<backend>/job_logs/`. Live status is at https://huggingface.co/settings/jobs.
 

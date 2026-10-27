@@ -1,6 +1,8 @@
 import os
 import glob
 import json
+import math
+from dataclasses import dataclass
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -208,6 +210,38 @@ def read_utmos(manifest_path: str, manifest: list):
     return round(sum(vals) / len(vals), 3) if vals else None
 
 
+# KOMOS is a Korean-only diagnostic; it never enters composite/ranking averages.
+KOMOS_LANGUAGES = {"ko"}
+
+
+@dataclass(frozen=True, slots=True)
+class KomosResult:
+    """Per-manifest MOS, coverage and serialized scoring provenance."""
+
+    score: float | None = None
+    count: int = 0
+    model: str | None = None
+
+
+def read_komos(manifest_path: str, manifest: list) -> KomosResult:
+    """Read a KOMOS sidecar, matching the plain or SIM-fork manifest's audio rows."""
+    stem = os.path.basename(manifest_path).removesuffix(".jsonl")
+    for suffix in SIM_BACKEND_SUFFIXES:
+        stem = stem.removesuffix(f"_{suffix}")
+    sidecar = os.path.join(os.path.dirname(manifest_path), f"KOMOS_{stem}.json")
+    if not os.path.exists(sidecar):
+        return KomosResult()
+    with open(sidecar, encoding="utf-8") as source:
+        data = json.load(source)
+    values = [data["scores"].get(row.get("audio_filepath")) for row in manifest]
+    valid = [float(v) for v in values
+             if type(v) in (int, float) and math.isfinite(v) and 1 <= v <= 5]
+    return KomosResult(
+        round(sum(valid) / len(valid), 3) if valid else None,
+        len(valid), json.dumps(data["komos_model"], sort_keys=True),
+    )
+
+
 def score_results(directory: str, model_id: str = None, multilingual: bool = None, csv_only: bool = False, language: str = "en", manifests: list = None, sim_backend: str = "wavlm_seed_tts"):
     """
     Scores all result files in a directory and returns a composite score over all evaluated datasets.
@@ -357,6 +391,7 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
             sims = [datum["sim"] for datum in manifest if isinstance(datum.get("sim"), (int, float))]
         sim = round(100 * sum(sims) / len(sims), 2) if sims else None
         utmos = read_utmos(result_file, manifest) if language in UTMOS_LANGUAGES else None
+        komos = read_komos(result_file, manifest) if language in KOMOS_LANGUAGES else KomosResult()
 
         if use_cer:
             # Per-character alignment (merge_compounds is moot). The headline CJK number is the
@@ -409,7 +444,7 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
         extra = {"ins": total_ins, "del": total_del, "sub": total_sub}
         # `wer` holds the headline error rate; `metric` says whether it is a WER or a CER. For CJK
         # it is the lenient CER, with `cer_unnormalized` the seed-tts-eval-comparable number.
-        results[result_key] = {"wer": wer, "metric": "CER" if use_cer else "WER", "cer_unnormalized": cer_unnormalized, "audio_length": audio_length, "inference_time": inference_time, "rtfx": rtfx, "sim": sim, "utmos": utmos, **extra}
+        results[result_key] = {"wer": wer, "metric": "CER" if use_cer else "WER", "cer_unnormalized": cer_unnormalized, "audio_length": audio_length, "inference_time": inference_time, "rtfx": rtfx, "sim": sim, "utmos": utmos, "komos": komos.score, "komos_count": komos.count, "komos_model": komos.model, **extra}
 
     # Name the manifests whose SIM was dropped, even under csv_only, so a blank SIM is explained.
     if stale_sim_files:
@@ -435,6 +470,9 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
                 metrics += f", SIM = {v['sim']:0.2f} %"
             if v.get("utmos") is not None:
                 metrics += f", UTMOS = {v['utmos']:0.3f}"
+            if v.get("komos") is not None:
+                metrics += f", KOMOS = {v['komos']:0.3f} ({v['komos_count']} files)"
+                metrics += f", KOMOS model = {v['komos_model']}"
             print(metrics)
 
     # composite WER should be computed over all datasets and with the same key
