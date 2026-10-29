@@ -7,6 +7,7 @@ This repository contains the code for the Open TTS Leaderboard. The leaderboard 
 The following datasets are used in the Open TTS Leaderboard:
 1. [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval) (`tts` config): `en` (English) and `zh` (Chinese).
 2. [CV3 Eval](https://github.com/QwenAudio/CV3-Eval): `en`, `zh`, `fr` (French), `es` (Spanish), `ja` (Japanese), `ko` (Korean), `it` (Italian), `de` (German), and `ru` (Russian) (`zero_shot` config, 500 samples per language).
+3. [MiniMax Multilingual](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) (`tts` config): 100 samples x 24 languages. (Thai is scored with CER; Ukrainian is not supported by ASR)
 
 While human preference is the ultimate decider, **arenas cannot scale to keep up with the pace of TTS releases**. To this end, we use objective metrics to evaluate models on complementary aspects of performance:
 
@@ -73,6 +74,8 @@ Unfortunately the licenses of [Seed TTS](https://github.com/BytedanceSpeech/seed
 (tts_leaderboard) python scripts/prepare_cv3_eval.py YOUR_USERNAME/cv3_eval
 ```
 Keep the repo names (`seed_tts_eval`, `cv3_eval`) as above, so that `DATASET_NAMESPACE=YOUR_USERNAME` points every job at your copies.
+
+The [MiniMax](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) test set is CC BY-SA 4.0, so it is redistributed publicly as [hf-audio/minimax_eval](https://huggingface.co/datasets/hf-audio/minimax_eval) and jobs use it by default (`MINIMAX_EVAL_PATH`); no copy of your own is needed.
 
 
 #### 4. Smoke test
@@ -165,9 +168,10 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
 | `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |
+| `ONLY_DATASETS` | (all) | Only run the configured splits of these dataset repos (name after the namespace), e.g. `"minimax_eval"` |
 | `STAGES` | `generate transcribe sim utmos` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs |
 | `VOICE_CLONE` | `false` | Clone the prompt speaker (backends that support both modes) |
-| `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. **Set `SIM_OVERWRITE=true` after regenerating audio**, otherwise old SIM scores are carried over |
+| `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. SIM is always recomputed when `generate` runs; set `SIM_OVERWRITE=true` only to re-score existing audio with `STAGES="sim"` |
 | `ORG_NAME` | (none) | Run the jobs under an organization's namespace |
 
 Examples:
