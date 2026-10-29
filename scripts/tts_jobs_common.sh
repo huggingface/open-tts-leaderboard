@@ -46,6 +46,8 @@ FLAVOR="${FLAVOR:-h200}"
 # Stage 2/3 flavors are not timed (WER/SIM are hardware-independent), so a cheaper GPU is fine.
 ASR_FLAVOR="${ASR_FLAVOR:-l4x1}"             # stage 2 flavor
 SIM_FLAVOR="${SIM_FLAVOR:-l4x1}"             # stage 3 flavor
+KOMOS_FLAVOR="${KOMOS_FLAVOR:-l4x1}"         # optional Korean MOS stage
+KOMOS_DEVICE="${KOMOS_DEVICE:-cuda:0}"
 UTMOS_FLAVOR="${UTMOS_FLAVOR:-l4x1}"         # stage 4 flavor
 MAX_EVAL_SAMPLES="${MAX_EVAL_SAMPLES:--1}"   # -1 = all; set e.g. 8 to smoke-test
 # Restrict a run to some of the backend's DATASET_CONFIGS: space-separated asr_language codes
@@ -71,11 +73,14 @@ ASR_OVERWRITE="${ASR_OVERWRITE:-false}"
 UTMOS_OVERWRITE="${UTMOS_OVERWRITE:-false}"
 # Languages (asr_language) that get stage 4; keep in sync with UTMOS_LANGUAGES in normalizer/eval_utils.py.
 UTMOS_LANGS="${UTMOS_LANGS:-en}"
-MAX_AUDIO_SECONDS="${MAX_AUDIO_SECONDS:-30}" # clip cap for ASR + SIM + UTMOS (0 = no cap)
+# KOMOS is an opt-in stage, e.g. STAGES="komos" ONLY_LANGS="ko".
+KOMOS_LANGS="${KOMOS_LANGS:-ko}"
+KOMOS_OVERWRITE="${KOMOS_OVERWRITE:-false}"
+MAX_AUDIO_SECONDS="${MAX_AUDIO_SECONDS:-30}" # clip cap for ASR + SIM + UTMOS + KOMOS (0 = no cap)
 # Clone each sample's prompt speaker (+ SIM stage) on backends that support it; false = the model's
 # own fixed/default voice. Ignored by fixed-voice backends.
 VOICE_CLONE="${VOICE_CLONE:-false}"
-# Which stages to run (subset of: generate transcribe sim utmos). Skip generate to re-score the
+# Which stages to run (subset of: generate transcribe sim utmos komos). Skip generate to re-score the
 # bucket's existing wavs, e.g. STAGES="transcribe sim" or STAGES="sim". Precedence (resolved in
 # run_pipeline): user env STAGES > backend DEFAULT_STAGES > "generate transcribe sim utmos".
 
@@ -92,6 +97,7 @@ SCORER_IMAGE="hf.co/spaces/${SPACE}"
 # expose the same columns the backends read: `text` + `prompt_text`/`prompt_audio` when cloning.
 DATASET_CONFIGS=("tts en en")
 
+komos_language() { [[ " ${KOMOS_LANGS} " == *" $1 "* ]]; }
 utmos_language() { [[ " ${UTMOS_LANGS} " == *" $1 "* ]]; }
 stage_enabled() { [[ " ${STAGES} " == *" $1 "* ]]; }
 
@@ -133,6 +139,8 @@ inject_run_eval() {
 TRANSCRIBE_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/transcribe.py" /app/transformers/transcribe.py)"
 SIM_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/score_similarity.py" /app/transformers/score_similarity.py)"
 UTMOS_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/score_utmos.py" /app/transformers/score_utmos.py)"
+
+KOMOS_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/score_komos.py" /app/transformers/score_komos.py)"
 
 # ── Default hooks (backends override as needed) ─────────────────────────────
 # voice_clone_mode [suffix_prefix] — sets CLONE / MODE_SUFFIX / VOICE_CLONE_FLAG from VOICE_CLONE.
@@ -235,6 +243,23 @@ utmos_stage() {
         "
 }
 
+# Separate job/environment: KOMOS requires Transformers 5 and must not change UTMOS/ASR deps.
+komos_stage() {
+    local KOMOS_OVERWRITE_FLAG=""
+    { [[ "${KOMOS_OVERWRITE}" == "true" ]] || stage_enabled generate; } && KOMOS_OVERWRITE_FLAG=" --overwrite"
+    hf jobs run \
+        --flavor "${KOMOS_FLAVOR}" --timeout 4h --secrets HF_TOKEN ${NAMESPACE_ARG} \
+        --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${SCORER_IMAGE}" \
+        bash -c "
+            ${KOMOS_INJECT}
+            python -m pip install uv &&
+            uv venv --python python /tmp/komos-env &&
+            uv pip install --python /tmp/komos-env/bin/python 'torch==2.8.0' --index-url https://download.pytorch.org/whl/cu128 &&
+            uv pip install --python /tmp/komos-env/bin/python 'komos==0.0.2' &&
+            /tmp/komos-env/bin/python /app/transformers/score_komos.py --manifest_paths ${BUCKET_MANIFEST} --max_rows=${MAX_EVAL_SAMPLES} --max_audio_seconds=${MAX_AUDIO_SECONDS} --device=${KOMOS_DEVICE}${KOMOS_OVERWRITE_FLAG}
+        "
+}
+
 # ── Wait for a model's chains, report failures, then sync + score locally ────
 # Uses PIDS/TAGS/CHAIN_LOGS set by run_pipeline. Returns non-zero (and skips scoring) on failure.
 _wait_and_score() {
@@ -277,6 +302,8 @@ _wait_and_score() {
             [[ -s "./results/${MODEL_FOLDER}/${name}" ]] || missing+=("${name}")
             stage_enabled utmos && utmos_language "${LANGS[$i]}" && [[ ! -s "./results/${MODEL_FOLDER}/UTMOS_${name%.jsonl}.json" ]] &&
                 missing+=("UTMOS_${name%.jsonl}.json")
+            stage_enabled komos && komos_language "${LANGS[$i]}" && [[ ! -s "./results/${MODEL_FOLDER}/KOMOS_${name%.jsonl}.json" ]] &&
+                missing+=("KOMOS_${name%.jsonl}.json")
         done
         [[ ${#missing[@]} -eq 0 ]] && break
     done
@@ -383,6 +410,7 @@ run_pipeline() {
                 stage_enabled transcribe && run_stage transcribe_stage
                 stage_enabled sim && [[ "${CLONE}" == "true" ]] && run_stage sim_stage
                 stage_enabled utmos && utmos_language "${ASR_LANG}" && run_stage utmos_stage
+                stage_enabled komos && komos_language "${ASR_LANG}" && run_stage komos_stage
                 true   # ensure subshell exit status is 0 when the last `&&` chain is a skipped stage
             ) > "${CHAIN_LOG}" 2>&1 &
             PIDS+=("$!"); TAGS+=("${DATASET}/${SPLIT}"); CHAIN_LOGS+=("${CHAIN_LOG}")
