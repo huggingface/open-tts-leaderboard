@@ -64,9 +64,10 @@ SIM_BATCH_SIZE="${SIM_BATCH_SIZE:-32}"       # SIM minibatch (ignored by the wav
 # interchangeable, so keep this the SAME for every model whose SIM you compare (score_similarity.py
 # records the embedder per row as `sim_model` and re-scores rows scored by the other one).
 SIM_BACKEND="${SIM_BACKEND:-wavlm_seed_tts}"
-# Force every row's SIM to be recomputed. REQUIRED after re-running `generate`: score_similarity.py
-# carries prior sims over keyed on `audio_filepath` (to resume crashed runs), and regeneration reuses
-# the same wav filenames, so without this the old SIM would silently be kept.
+# Force every row's SIM to be recomputed. Forced when `generate` runs: score_similarity.py carries
+# prior sims over keyed on `audio_filepath` (to resume crashed runs), and regeneration reuses the same
+# wav filenames, so the old SIM would otherwise silently be kept. Set it yourself only when re-scoring
+# without `generate` (e.g. STAGES="sim" after a generate run that skipped SIM).
 SIM_OVERWRITE="${SIM_OVERWRITE:-false}"
 # Same opt-out for stage 2: transcribe.py skips rows that already have a `pred_text`. Set
 # ASR_OVERWRITE=true with STAGES="transcribe" to re-transcribe the bucket's existing wavs.
@@ -217,7 +218,7 @@ transcribe_stage() {
 }
 sim_stage() {
     local SIM_OVERWRITE_FLAG=""
-    [[ "${SIM_OVERWRITE}" == "true" ]] && SIM_OVERWRITE_FLAG=" --overwrite"
+    { [[ "${SIM_OVERWRITE}" == "true" ]] || stage_enabled generate; } && SIM_OVERWRITE_FLAG=" --overwrite"
     hf jobs run \
         --flavor "${SIM_FLAVOR}" --timeout 4h --secrets HF_TOKEN \
         --env PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True" ${NAMESPACE_ARG} \

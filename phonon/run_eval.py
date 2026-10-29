@@ -40,10 +40,10 @@ from run_eval_utils import (
 
 MODEL_REVISIONS = {
     "gradium/phonon-31m-en": "92741c5b07d085ff840e26fea8ce43110b87852f",
-    "gradium/phonon-40m-en": "cc738b7e4d182c2ba1bafb8062aa4846af000637",
+    "gradium/phonon-40m-en": "bc7e8ae7e543a7a3e4604753e42fbda76ddf0781",
     "gradium/phonon-40m-fr": "d91086970206b88efd2c88ca971d0628b5968f0f",
     "gradium/phonon-40m-de": "79cfc7b47fcfc0b666657b981eb366415023a862",
-    "gradium/phonon-40m-es": "f0d2f39c9b58ad4c19a189e3ba989ee4df393cc5",
+    "gradium/phonon-40m-es": "e5e052b26e31abd5918ade71d3135e69d51a66f8",
 }
 
 # Voice cloning: voices/<SHA-256 of a reference clip>.safetensors holds that clip's speaker latents,
@@ -643,7 +643,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_revision", help="Immutable dataset commit; resolves current Hub revision if omitted.")
     parser.add_argument("--temperature", type=float, default=0.3)
     parser.add_argument("--eos_threshold", type=float, default=4.0)
-    parser.add_argument("--conditions", type=json.loads, default={"num_speakers": "1", "duration_delta": 0.0})
+    parser.add_argument("--conditions", type=json.loads, default={"num_speakers": "1", "duration_delta": 0.3})
     parser.add_argument("--rewrites", choices=("default", "all", "none"), default="default")
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--ttfa_output_root", help="Separate private root for TTFA sidecars only.")

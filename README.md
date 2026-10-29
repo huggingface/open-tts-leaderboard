@@ -171,7 +171,7 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 | `ONLY_DATASETS` | (all) | Only run the configured splits of these dataset repos (name after the namespace), e.g. `"minimax_eval"` |
 | `STAGES` | `generate transcribe sim utmos` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs |
 | `VOICE_CLONE` | `false` | Clone the prompt speaker (backends that support both modes) |
-| `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. **Set `SIM_OVERWRITE=true` after regenerating audio**, otherwise old SIM scores are carried over |
+| `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. SIM is always recomputed when `generate` runs; set `SIM_OVERWRITE=true` only to re-score existing audio with `STAGES="sim"` |
 | `ORG_NAME` | (none) | Run the jobs under an organization's namespace |
 
 Examples:
