@@ -2,6 +2,7 @@ import re
 
 import num2words
 from normalizer import EnglishTextNormalizer, BasicMultilingualTextNormalizer
+from normalizer.persian import PersianTextNormalizer
 
 
 class MultilingualNormalizer(BasicMultilingualTextNormalizer):
@@ -22,6 +23,8 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
         return re.sub(r"\d+", _replace, text)
 
     def __call__(self, s, lang=None):
+        if lang == "fa":
+            return persian_normalizer(s)
         s = super().__call__(s)
         if lang is not None:
             s = self._normalize_numbers(s, lang)
@@ -29,6 +32,8 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
 
 
 normalizer = EnglishTextNormalizer()
+
+persian_normalizer = PersianTextNormalizer()
 
 ml_normalizer = MultilingualNormalizer(remove_diacritics=False)
 
