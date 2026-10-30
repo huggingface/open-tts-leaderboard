@@ -223,7 +223,7 @@ Seamless is fast and batched, so most of each of its generation jobs (~1 min per
 > [!TIP]
 > **Let your coding agent do the heavy lifting!** Ask it to:
 > - make a new folder to evaluate the new model, linking it to a documentation page with usage
-> - use batch inference if possible
+> - use batch inference if possible, with max batch size of 32
 > - implement the TTFA probe if the model supports streaming
 > - (if you give it permission to your HF account) make a Docker Space to run the model via HF Jobs, taking inspiration from one of the existing configurations [here](https://huggingface.co/collections/bezzam/tts-eval)
 

@@ -81,7 +81,6 @@ DATASET_CONFIGS=(
     "zero_shot es es ${CV3_EVAL_PATH}"
     "zero_shot it it ${CV3_EVAL_PATH}"
     "zero_shot ru ru ${CV3_EVAL_PATH}"
-    # MiniMax multilingual (100 sentences/language). No `uk`: Qwen3-ASR has no Ukrainian.
     "tts en en ${MINIMAX_EVAL_PATH}"
     "tts zh zh ${MINIMAX_EVAL_PATH}"
     "tts yue yue ${MINIMAX_EVAL_PATH}"
