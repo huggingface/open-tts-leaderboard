@@ -44,12 +44,13 @@ MODEL_REVISIONS = {
     "gradium/phonon-40m-fr": "d91086970206b88efd2c88ca971d0628b5968f0f",
     "gradium/phonon-40m-de": "79cfc7b47fcfc0b666657b981eb366415023a862",
     "gradium/phonon-40m-es": "e5e052b26e31abd5918ade71d3135e69d51a66f8",
+    "gradium/phonon-40m-pt": "4cbfd742a1555d60eb5399c6d296e9f2e07389e9",
 }
 
 # Voice cloning: voices/<SHA-256 of a reference clip>.safetensors holds that clip's speaker latents,
 # and index.json maps "<dataset>/<config>/<split>" to {row id: SHA-256}.
 CLONE_VOICES_REPO = "gradium/phonon-leaderboard-clone-voices"
-CLONE_VOICES_REVISION = "3f2a9ece98f4296c57db4f797591a9e021ee11a9"
+CLONE_VOICES_REVISION = "b394ef2baf1d8db9c695bdc9acb0cb1693eff005"
 
 
 def file_hash(path):
@@ -410,8 +411,8 @@ def load_clone_voices(args):
 def main(args):
     if args.voice_clone and (args.ttfa_probe or args.voice != "default"):
         raise ValueError("Voice cloning replaces the preset voice and has no TTFA path.")
-    if args.device != "cpu" or args.split not in ("en", "fr", "de", "es"):
-        raise ValueError("This q8_0 path supports English, French, German and Spanish on CPU only.")
+    if args.device != "cpu" or args.split not in ("en", "fr", "de", "es", "pt"):
+        raise ValueError("This q8_0 path supports English, French, German, Spanish and Portuguese on CPU only.")
     if args.ttfa_probe and args.split != "en":
         raise ValueError("TTFA measures the English split only; A100/CUDA TTFA is unavailable.")
     if getattr(args, "ttfa_mode", "blocking") not in ("blocking", "streaming"):
