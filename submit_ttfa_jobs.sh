@@ -214,25 +214,35 @@ NO_CLONE_FLAG="inflect-nano inflect-v2 kokoro lfm2-audio magpie-tts paradee phon
 
 # run_eval.py writes to its own output roots (outside Git, mode 0700) and names the sidecar itself,
 # so Phonon skips the generic run/rename/copy below; `preamble` is submit_one's CPU thread cap.
+# `model_ids` (space-separated) are probed one after another in ONE job: cpu-upgrade hosts vary a lot
+# between jobs, so only models measured on the same host can be ranked against each other.
 submit_phonon() {
-    local model_id="$1" space="$2" inject="$3" preamble="$4" model_safe="${1//\//-}" dataset_safe="${TTFA_DATASET_PATH//\//-}"
-    local engine="" runner
+    local model_ids="$1" space="$2" inject="$3" preamble="$4" dataset_safe="${TTFA_DATASET_PATH//\//-}"
+    local engine="" model_id model_safe filename runner probes="" n_models=0
     [[ "$PHONON_TTFA_MODE" != streaming ]] || engine="__ptts-stream"
-    local filename="TTFA_MODEL_${model_safe}_DATASET_${dataset_safe}_zero_shot_en${engine}__cpu-upgrade.json"
-    local args=(--model_id "$model_id" --dataset_path "$TTFA_DATASET_PATH"
-        --dataset zero_shot --split en --device cpu --ttfa_probe 500 --ttfa_flavor cpu-upgrade
-        --ttfa_mode "$PHONON_TTFA_MODE" --max_eval_samples -1 --warmup_steps 0)
-    [[ -z "${TTFA_DATASET_REVISION:-}" ]] || args+=(--dataset_revision "$TTFA_DATASET_REVISION")
-    printf -v runner '%q ' python /app/phonon/run_eval.py "${args[@]}"
+    for model_id in ${model_ids}; do
+        model_safe="${model_id//\//-}"
+        filename="TTFA_MODEL_${model_safe}_DATASET_${dataset_safe}_zero_shot_en${engine}__cpu-upgrade.json"
+        local args=(--model_id "$model_id" --dataset_path "$TTFA_DATASET_PATH"
+            --dataset zero_shot --split en --device cpu --ttfa_probe 500 --ttfa_flavor cpu-upgrade
+            --ttfa_mode "$PHONON_TTFA_MODE" --max_eval_samples -1 --warmup_steps 0)
+        [[ -z "${TTFA_DATASET_REVISION:-}" ]] || args+=(--dataset_revision "$TTFA_DATASET_REVISION")
+        printf -v runner '%q ' python /app/phonon/run_eval.py "${args[@]}"
+        # Copied as soon as each model finishes, so a later model's failure keeps the earlier sidecars.
+        probes+="
+        echo '=== ${model_id}'
+        ${runner} --threads \"\${_cpuq}\" --output_root /tmp/phonon/quality --ttfa_output_root /tmp/phonon/ttfa
+        mkdir -p '/results/${model_safe}'
+        cp '/tmp/phonon/ttfa/results/${model_safe}/${filename}' '/results/${model_safe}/'"
+        n_models=$((n_models + 1))
+    done
     local command="set -euo pipefail
         ${inject}
         ${TTFA_INJECT} true || exit 1
         ${preamble}
-        ${runner} --threads \"\${_cpuq}\" --output_root /tmp/phonon/quality --ttfa_output_root /tmp/phonon/ttfa
-        mkdir -p '/results/${model_safe}'
-        cp '/tmp/phonon/ttfa/results/${model_safe}/${filename}' '/results/${model_safe}/'
+        ${probes}
     "
-    local -a job=(hf jobs run --flavor cpu-upgrade --timeout 1h --secrets HF_TOKEN)
+    local -a job=(hf jobs run --flavor cpu-upgrade --timeout "${n_models}h" --secrets HF_TOKEN)
     [[ -z "$ORG_NAME" ]] || job+=(--namespace "$ORG_NAME")
     "${job[@]}" --volume "hf://buckets/${RESULTS_BUCKET}:/results" "hf.co/spaces/${space}" bash -c "$command"
 }
@@ -277,6 +287,8 @@ submit_one() {
             fi
             export OMP_NUM_THREADS=\${_cpuq} MKL_NUM_THREADS=\${_cpuq} OPENBLAS_NUM_THREADS=\${_cpuq}
             echo \"CPU run: nproc=\$(nproc) cgroup_quota=\${_cpuq} -> OMP_NUM_THREADS=\${_cpuq}\"
+            # The host CPU can vary between cpu-upgrade jobs and moves TTFA a lot; log it to explain potential outliers.
+            echo \"CPU model: \$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2- | sed 's/^ *//')\"
         "
         # Guard against a quoting slip silently emptying the preamble (the probe would run uncapped).
         if [[ "${preamble}" != *OMP_NUM_THREADS* ]]; then
@@ -372,7 +384,7 @@ submit_one() {
 
 # ── Run: one job per target, in parallel, one log each ───────────────────────
 SELECT=("$@")
-PIDS=(); TAGS=(); MIDS=(); LOGS=()
+PIDS=(); TAGS=(); MIDS=(); LOGS=(); PHONON_MODELS=()
 _n_desc=$([[ "${TTFA_SAMPLES}" -lt 0 ]] && echo "the WHOLE split" || echo "${TTFA_SAMPLES} samples")
 echo "TTFA probe: ${_n_desc} of ${TTFA_DATASET_PATH}/${TTFA_DATASET}/${TTFA_SPLIT}"
 echo "            flavor=${FLAVOR}, device=${TTFA_DEVICE}, batch size 1, voice_clone=${VOICE_CLONE}"
@@ -393,6 +405,11 @@ for target in "${TTFA_TARGETS[@]}"; do
         echo "       Field 2 must be the real directory; field 1 is the free-form label." >&2
         exit 1
     fi
+    # Phonon: every selected model is probed in one shared job, submitted after this loop.
+    if [[ "${backend}" == phonon ]]; then
+        PHONON_MODELS+=("${model_id}"); PHONON_JOB_SPACE="${space}"
+        continue
+    fi
     log="${LOG_DIR}/${label}_${model_id//\//-}.log"
     echo "Submitting TTFA probe: ${model_id}  (label=${label}, backend=${backend}, log: ${log})"
     [[ "${backend}" == fishaudio-drama-3 && -z "${TTFA_FLAVOR:-}" && "${TTFA_DEVICE}" != cpu ]] &&
@@ -401,6 +418,13 @@ for target in "${TTFA_TARGETS[@]}"; do
     # Exact log path: two targets can share a model id (one per engine).
     PIDS+=("$!"); TAGS+=("${label}"); MIDS+=("${model_id}"); LOGS+=("${log}")
 done
+
+if [ ${#PHONON_MODELS[@]} -gt 0 ]; then
+    log="${LOG_DIR}/phonon_${FLAVOR}.log"
+    echo "Submitting TTFA probe: ${PHONON_MODELS[*]}  (one job, same host; label=phonon, log: ${log})"
+    ( submit_one phonon "${PHONON_JOB_SPACE}" "${PHONON_MODELS[*]}" "" "" ) > "${log}" 2>&1 &
+    PIDS+=("$!"); TAGS+=("phonon"); MIDS+=("${PHONON_MODELS[*]}"); LOGS+=("${log}")
+fi
 
 if [ ${#PIDS[@]} -eq 0 ]; then
     echo "No targets matched. Known labels:"
@@ -462,13 +486,19 @@ for i in "${!PIDS[@]}"; do
         fi
     fi
     if ${_ok}; then
-        line=$(grep -hoE "TTFA SUMMARY .*" "${_log}" 2>/dev/null | tail -1)
+        # One summary per model, in run order (a shared Phonon job probes several).
+        read -ra _models <<< "${MIDS[$i]}"
+        mapfile -t _lines < <(grep -hoE "TTFA SUMMARY .*" "${_log}" 2>/dev/null | tail -n "${#_models[@]}")
         # A short job can finish before `hf jobs run`'s log stream attaches; re-fetch by job id.
-        if [ -z "${line}" ]; then
+        if [ ${#_lines[@]} -lt ${#_models[@]} ]; then
             _append_job_log "${_log}"
-            line=$(grep -hoE "TTFA SUMMARY .*" "${_log}" 2>/dev/null | tail -1)
+            mapfile -t _lines < <(grep -hoE "TTFA SUMMARY .*" "${_log}" 2>/dev/null | tail -n "${#_models[@]}")
         fi
-        echo "  ✓ ${MIDS[$i]} [${TAGS[$i]}]: ${line:-completed, but no TTFA line found — see ${_log}}"
+        for j in "${!_models[@]}"; do
+            echo "  ✓ ${_models[$j]} [${TAGS[$i]}]: ${_lines[$j]:-completed, but no TTFA line found — see ${_log}}"
+        done
+        _cpu=$(grep -m1 -oE "CPU model: .*" "${_log}" 2>/dev/null)
+        [ -z "${_cpu}" ] || echo "      (${_cpu})"
     else
         echo "  ✗ ${MIDS[$i]} [${TAGS[$i]}]: FAILED (HF job stage: ${_stage:-unknown}) — last lines:"
         # Same race as above: pull the job's own log so a failure is diagnosable.
