@@ -104,7 +104,7 @@ stage_enabled() { [[ " ${STAGES} " == *" $1 "* ]]; }
 # inject_cmd <local_file> <container_dest> → `... &&` snippet recreating the file in the job.
 inject_cmd() {
     local b64
-    b64=$(base64 -w0 "$1")
+    b64=$(base64 -w0 < "$1")
     echo "mkdir -p $(dirname "$2") && echo '${b64}' | base64 -d > $2 &&"
 }
 # inject_cmd_gz <local_file> <container_path> → same, but gzipped first, for large payloads: a job
