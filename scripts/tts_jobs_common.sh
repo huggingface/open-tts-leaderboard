@@ -40,6 +40,8 @@ DEFAULT_DATASET_PATH="${DATASET_PATH:-${DATASET_NAMESPACE}/seed_tts_eval}"
 CV3_EVAL_PATH="${CV3_EVAL_PATH:-${DATASET_NAMESPACE}/cv3_eval}"
 # MiniMax is CC BY-SA 4.0, so everyone uses the one public copy (scripts/prepare_minimax_eval.py).
 MINIMAX_EVAL_PATH="${MINIMAX_EVAL_PATH:-hf-audio/minimax_eval}"
+# Opt-in until a maintainer publishes an official copy; see docs/persian.md.
+NEYSHEKAR_EVAL_PATH="${NEYSHEKAR_EVAL_PATH:-}"
 ORG_NAME="${ORG_NAME:-}"
 # Stage-1 (generation) flavor. IMPORTANT: keep this the SAME (h200) for EVERY backend — RTFx is
 # measured on the generation stage, so a uniform GPU is required for RTFx to be comparable across

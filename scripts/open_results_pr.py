@@ -14,6 +14,8 @@ Files written (all in that dataset repo):
     cv3_voice_clone.csv       CV3-Eval, cloning each prompt              (WER, RTFx, SIM, UTMOS + averages)
     minimax.csv               MiniMax multilingual, own/default voice    (WER, RTFx, UTMOS + averages)
     minimax_voice_clone.csv   MiniMax multilingual, cloning each prompt  (WER, RTFx, SIM, UTMOS + averages)
+    neyshekar.csv             Neyshekar Persian test, own/default voice (WER, RTFx)
+    neyshekar_voice_clone.csv Neyshekar Persian test, cloning each prompt (WER, RTFx, SIM)
     streaming.csv             time-to-first-audio, CPU and GPU           (TTFA, RTFx at batch 1)
 
 Every file but model_info.csv also has a free-text `Note` column, filled by --note (e.g. hardware
@@ -63,6 +65,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)  # so `from normalizer import ...` resolves regardless of cwd
 
 from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download  # noqa: E402
+from huggingface_hub.errors import EntryNotFoundError  # noqa: E402
 
 from normalizer.eval_utils import SIM_BACKEND_SUFFIXES, UTMOS_COLUMN_LANGUAGES, default_multilingual, score_results  # noqa: E402
 
@@ -101,13 +104,16 @@ class Target:
     voice_clone: which side of the `_voice_clone` split this file publishes.
     xvector_sim: this file also carries the xvector-scale SIM column, which needs a second scoring
         pass (one `score_results` call reports one SIM scale).
+    languages: optional allowed language set, also preventing a development config whose
+        name shares the marker prefix from being published as final test results.
     """
 
-    def __init__(self, filename, marker, voice_clone, xvector_sim=False):
+    def __init__(self, filename, marker, voice_clone, xvector_sim=False, languages=None):
         self.filename = filename
         self.marker = marker
         self.voice_clone = voice_clone
         self.xvector_sim = xvector_sim
+        self.languages = languages
 
 
 # Keyed by --targets value; the order here is the order the files are reported and committed in.
@@ -120,6 +126,8 @@ TARGETS = {
     "cv3_voice_clone": Target("cv3_voice_clone.csv", "cv3_eval_zero_shot_", voice_clone=True),
     "minimax": Target("minimax.csv", "minimax_eval_tts_", voice_clone=False),
     "minimax_voice_clone": Target("minimax_voice_clone.csv", "minimax_eval_tts_", voice_clone=True),
+    "neyshekar": Target("neyshekar.csv", "neyshekar_eval_tts_", voice_clone=False, languages={"fa"}),
+    "neyshekar_voice_clone": Target("neyshekar_voice_clone.csv", "neyshekar_eval_tts_", voice_clone=True, languages={"fa"}),
 }
 
 # streaming.csv is filled from the TTFA sidecars rather than by scoring, so it is not a Target.
@@ -205,6 +213,8 @@ def select_manifests(model_dir, model_safe, target, variant):
                 unmatched.append(stem)
                 continue
             rest = rest[: -len(variant)]
+        if target.languages is not None and rest not in target.languages:
+            continue
         selected[stem] = rest
     return selected, unmatched
 
@@ -408,7 +418,17 @@ def line_terminator(line):
 
 
 def fetch_csv(filename, hf_token):
-    path = hf_hub_download(RESULTS_REPO, filename, repo_type="dataset", token=hf_token)
+    try:
+        path = hf_hub_download(RESULTS_REPO, filename, repo_type="dataset", token=hf_token)
+    except EntryNotFoundError:
+        # Bootstrap only the new benchmark's files. Missing existing files and permission
+        # errors must still fail. The separate tts_validation config cannot match these targets.
+        if filename not in {"neyshekar.csv", "neyshekar_voice_clone.csv"}:
+            raise
+        header = ["model", "fa WER", "fa RTFx"]
+        if filename == "neyshekar_voice_clone.csv":
+            header.append("fa SIM")
+        return Published(serialize_row(header) + "\n")
     with open(path, newline="", encoding="utf-8") as handle:
         return Published(handle.read())
 

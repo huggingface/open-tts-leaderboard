@@ -8,6 +8,7 @@ The following datasets are used in the Open TTS Leaderboard:
 1. [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval) (`tts` config): `en` (English) and `zh` (Chinese).
 2. [CV3 Eval](https://github.com/QwenAudio/CV3-Eval): `en`, `zh`, `fr` (French), `es` (Spanish), `ja` (Japanese), `ko` (Korean), `it` (Italian), `de` (German), and `ru` (Russian) (`zero_shot` config, 500 samples per language).
 3. [MiniMax Multilingual](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) (`tts` config): 100 samples x 24 languages. (Thai is scored with CER; Ukrainian is not supported by ASR)
+4. [Neyshekar](https://huggingface.co/datasets/shekar-ai/Neyshekar) Persian (`fa`, opt-in): `tts/fa` is prepared from its predefined test split; `tts_validation/fa` is reserved for development. See [Persian evaluation setup and scoring](docs/persian.md).
 
 While human preference is the ultimate decider, **arenas cannot scale to keep up with the pace of TTS releases**. To this end, we use objective metrics to evaluate models on complementary aspects of performance:
 
@@ -76,6 +77,10 @@ Unfortunately the licenses of [Seed TTS](https://github.com/BytedanceSpeech/seed
 Keep the repo names (`seed_tts_eval`, `cv3_eval`) as above, so that `DATASET_NAMESPACE=YOUR_USERNAME` points every job at your copies.
 
 The [MiniMax](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) test set is CC BY-SA 4.0, so it is redistributed publicly as [hf-audio/minimax_eval](https://huggingface.co/datasets/hf-audio/minimax_eval) and jobs use it by default (`MINIMAX_EVAL_PATH`); no copy of your own is needed.
+
+For Persian, [prepare Neyshekar](docs/persian.md) with `scripts/prepare_neyshekar_eval.py`.
+It is CC0 and can be copied publicly. Set `NEYSHEKAR_EVAL_PATH=YOUR_USERNAME/neyshekar_eval`
+to opt in with the OmniVoice backend. No official reformatted Hub copy is assumed.
 
 
 #### 4. Smoke test
