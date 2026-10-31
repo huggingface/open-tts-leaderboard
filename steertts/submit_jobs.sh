@@ -6,7 +6,7 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common.sh"
 
 # ── Backend config ───────────────────────────────────────────────────────────
-TTS_SPACE="${TTS_SPACE:-WhissleAI/evals-steertts}"   # stage-1 image (Dockerfile: steertts/Dockerfile)
+TTS_SPACE="${TTS_SPACE:-bezzam/evals-steertts}"   # stage-1 image (Dockerfile in the Space: https://huggingface.co/spaces/bezzam/evals-steertts/blob/main/Dockerfile)
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
 DEFAULT_STAGES="generate transcribe sim utmos"       # sim runs only with VOICE_CLONE=true
 SUPPORTS_VOICE_CLONE=true
