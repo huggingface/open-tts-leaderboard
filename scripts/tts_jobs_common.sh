@@ -30,14 +30,16 @@ BACKEND_DIR="$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)"   # the sourcing bac
 # ── Shared config (all env-overridable) ─────────────────────────────────────
 SPACE="${SPACE:-bezzam/evals}"                                   # shared scorer image (stages 2 & 3)
 RESULTS_BUCKET="${RESULTS_BUCKET:-hf-audio/tts_leaderboard_h200}"   # shared HF bucket (per-model folders)
-# HF namespace holding your PRIVATE copies of the eval datasets (their licenses forbid
+# HF namespace holding your PRIVATE copies of the Seed-TTS / CV3 eval datasets (their licenses forbid
 # redistribution; push them with scripts/prepare_{seed_tts,cv3}_eval.py). Only supplies the defaults
 # below — DATASET_PATH / CV3_EVAL_PATH (or a DATASET_CONFIGS line's 4th field) can name any repo.
 DATASET_NAMESPACE="${DATASET_NAMESPACE:-hf-audio}"
 # Default dataset repo, used for every DATASET_CONFIGS line that does not name its own (4th field).
 DEFAULT_DATASET_PATH="${DATASET_PATH:-${DATASET_NAMESPACE}/seed_tts_eval}"
-# The other eval set — named explicitly by the CV3 lines of a backend's DATASET_CONFIGS.
+# The other eval sets — named explicitly by the CV3 / MiniMax lines of a backend's DATASET_CONFIGS.
 CV3_EVAL_PATH="${CV3_EVAL_PATH:-${DATASET_NAMESPACE}/cv3_eval}"
+# MiniMax is CC BY-SA 4.0, so everyone uses the one public copy (scripts/prepare_minimax_eval.py).
+MINIMAX_EVAL_PATH="${MINIMAX_EVAL_PATH:-hf-audio/minimax_eval}"
 ORG_NAME="${ORG_NAME:-}"
 # Stage-1 (generation) flavor. IMPORTANT: keep this the SAME (h200) for EVERY backend — RTFx is
 # measured on the generation stage, so a uniform GPU is required for RTFx to be comparable across
@@ -53,6 +55,9 @@ MAX_EVAL_SAMPLES="${MAX_EVAL_SAMPLES:--1}"   # -1 = all; set e.g. 8 to smoke-tes
 # Restrict a run to some of the backend's DATASET_CONFIGS: space-separated asr_language codes
 # (field 3 of a config line), e.g. ONLY_LANGS="de". Empty (default) runs every configured combo.
 ONLY_LANGS="${ONLY_LANGS:-}"
+# Same, by dataset repo name (the part after the namespace), e.g. ONLY_DATASETS="minimax_eval" or
+# "seed_tts_eval cv3_eval". Combines with ONLY_LANGS.
+ONLY_DATASETS="${ONLY_DATASETS:-}"
 ASR_BATCH_SIZE="${ASR_BATCH_SIZE:-32}"       # ASR minibatch (lower if it OOMs)
 SIM_BATCH_SIZE="${SIM_BATCH_SIZE:-32}"       # SIM minibatch (ignored by the wavlm_seed_tts backend)
 # Speaker-similarity embedder. 'xvector': WavLMForXVector (wavlm-base-plus-sv) — cheap but poorly
@@ -61,9 +66,10 @@ SIM_BATCH_SIZE="${SIM_BATCH_SIZE:-32}"       # SIM minibatch (ignored by the wav
 # interchangeable, so keep this the SAME for every model whose SIM you compare (score_similarity.py
 # records the embedder per row as `sim_model` and re-scores rows scored by the other one).
 SIM_BACKEND="${SIM_BACKEND:-wavlm_seed_tts}"
-# Force every row's SIM to be recomputed. REQUIRED after re-running `generate`: score_similarity.py
-# carries prior sims over keyed on `audio_filepath` (to resume crashed runs), and regeneration reuses
-# the same wav filenames, so without this the old SIM would silently be kept.
+# Force every row's SIM to be recomputed. Forced when `generate` runs: score_similarity.py carries
+# prior sims over keyed on `audio_filepath` (to resume crashed runs), and regeneration reuses the same
+# wav filenames, so the old SIM would otherwise silently be kept. Set it yourself only when re-scoring
+# without `generate` (e.g. STAGES="sim" after a generate run that skipped SIM).
 SIM_OVERWRITE="${SIM_OVERWRITE:-false}"
 # Same opt-out for stage 2: transcribe.py skips rows that already have a `pred_text`. Set
 # ASR_OVERWRITE=true with STAGES="transcribe" to re-transcribe the bucket's existing wavs.
@@ -206,6 +212,27 @@ run_stage() {
     done
 }
 
+# ── Wait for stage-1 bucket uploads ─────────────────────────────────────────
+# `hf jobs run` can return before the job's /results writes reach the bucket, so stage 2 would read
+# a missing manifest or wavs. Poll until the manifest and every wav it lists are in the bucket.
+BUCKET_WAIT_TIMEOUT="${BUCKET_WAIT_TIMEOUT:-900}"   # seconds
+
+wait_for_bucket() {
+    local rel="${BUCKET_MANIFEST#/results/}" deadline=$((SECONDS + BUCKET_WAIT_TIMEOUT)) want have
+    while (( SECONDS < deadline )); do
+        want=$(hf buckets cp "hf://buckets/${RESULTS_BUCKET}/${rel}" - 2>/dev/null |
+            grep -oE '"(audio|prompt_audio)_filepath": "[^"]+"' | cut -d'"' -f4 | sort -u)
+        if [[ -n "${want}" ]]; then
+            have=$(hf buckets list "${RESULTS_BUCKET}/${MODEL_FOLDER}" -R 2>/dev/null |
+                awk '{print $NF}' | sed "s|^${MODEL_FOLDER}/||" | sort -u)
+            [[ -z "$(comm -23 <(echo "${want}") <(echo "${have}"))" ]] && return 0
+        fi
+        sleep 30
+    done
+    echo "── ${rel}: stage-1 outputs still not in the bucket after ${BUCKET_WAIT_TIMEOUT}s; giving up."
+    return 1
+}
+
 # ── Shared stages 2-4 (identical for every backend) ─────────────────────────
 transcribe_stage() {
     local ASR_OVERWRITE_FLAG=""
@@ -220,7 +247,7 @@ transcribe_stage() {
 }
 sim_stage() {
     local SIM_OVERWRITE_FLAG=""
-    [[ "${SIM_OVERWRITE}" == "true" ]] && SIM_OVERWRITE_FLAG=" --overwrite"
+    { [[ "${SIM_OVERWRITE}" == "true" ]] || stage_enabled generate; } && SIM_OVERWRITE_FLAG=" --overwrite"
     hf jobs run \
         --flavor "${SIM_FLAVOR}" --timeout 4h --secrets HF_TOKEN \
         --env PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True" ${NAMESPACE_ARG} \
@@ -385,8 +412,12 @@ run_pipeline() {
             # name, so two datasets that share a config/split name still land in distinct manifests.
             DATASET_PATH="${CFG_DATASET_PATH:-${DEFAULT_DATASET_PATH}}"
             DATASET_SAFE="${DATASET_PATH//\//-}"
-            # Caller-requested subset (ONLY_LANGS), checked before supports_language so the
-            # "not supported" message is never printed for a combo the caller simply skipped.
+            # Caller-requested subset (ONLY_DATASETS / ONLY_LANGS), checked before supports_language so
+            # the "not supported" message is never printed for a combo the caller simply skipped.
+            if [[ -n "${ONLY_DATASETS}" && " ${ONLY_DATASETS} " != *" ${DATASET_PATH##*/} "* ]]; then
+                echo "Skipping ${DATASET_PATH##*/}/${DATASET}/${SPLIT}: not in ONLY_DATASETS='${ONLY_DATASETS}'."
+                continue
+            fi
             if [[ -n "${ONLY_LANGS}" && " ${ONLY_LANGS} " != *" ${ASR_LANG} "* ]]; then
                 echo "Skipping ${DATASET}/${SPLIT}: not in ONLY_LANGS='${ONLY_LANGS}'."
                 continue
@@ -398,21 +429,23 @@ run_pipeline() {
                 continue
             fi
             BUCKET_MANIFEST="/results/${MODEL_FOLDER}/MODEL_${MODEL_SAFE}_DATASET_${DATASET_SAFE}_${DATASET}_${SPLIT}${MODE_SUFFIX}.jsonl"
-            local CHAIN_LOG="${LOG_DIR}/${MODEL_SAFE}_${DATASET}_${SPLIT}${MODE_SUFFIX}.log"
-            echo "Submitting pipeline: model=${MODEL_ID} dataset=${DATASET} split=${SPLIT}  (log: ${CHAIN_LOG})"
+            # The dataset repo name is in the log name: Seed-TTS and MiniMax share the `tts` config and
+            # split names, and their combos run in parallel.
+            local CHAIN_LOG="${LOG_DIR}/${MODEL_SAFE}_${DATASET_PATH##*/}_${DATASET}_${SPLIT}${MODE_SUFFIX}.log"
+            echo "Submitting pipeline: model=${MODEL_ID} dataset=${DATASET_PATH##*/}/${DATASET} split=${SPLIT}  (log: ${CHAIN_LOG})"
 
             # Sequential stages in a backgrounded subshell (combos run in parallel). `set -e`
             # aborts the chain on the first failed stage; the waiter reports it from the log.
             (
                 set -e
-                stage_enabled generate   && run_stage generate_stage
+                stage_enabled generate   && run_stage generate_stage && wait_for_bucket
                 stage_enabled transcribe && run_stage transcribe_stage
                 stage_enabled sim && [[ "${CLONE}" == "true" ]] && run_stage sim_stage
                 stage_enabled utmos && utmos_language "${ASR_LANG}" && run_stage utmos_stage
                 stage_enabled komos && komos_language "${ASR_LANG}" && run_stage komos_stage
                 true   # ensure subshell exit status is 0 when the last `&&` chain is a skipped stage
             ) > "${CHAIN_LOG}" 2>&1 &
-            PIDS+=("$!"); TAGS+=("${DATASET}/${SPLIT}"); CHAIN_LOGS+=("${CHAIN_LOG}")
+            PIDS+=("$!"); TAGS+=("${DATASET_PATH##*/}/${DATASET}/${SPLIT}"); CHAIN_LOGS+=("${CHAIN_LOG}")
             LANGS+=("${ASR_LANG}"); MANIFEST_NAMES+=("$(basename "${BUCKET_MANIFEST}")")
         done
 

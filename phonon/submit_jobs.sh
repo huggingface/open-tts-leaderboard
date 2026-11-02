@@ -1,5 +1,5 @@
 #!/bin/bash
-# English, French, German and Spanish, fixed voice or, with VOICE_CLONE=true, voice cloning.
+# English, French, German, Spanish and Portuguese, fixed voice or, with VOICE_CLONE=true, voice cloning.
 # Usage: bash phonon/submit_jobs.sh [model_id ...]
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common.sh"
@@ -43,6 +43,12 @@ generate_stage() {
 DATASET_CONFIGS=(
     "tts en en"
     "zero_shot en en ${CV3_EVAL_PATH}"
+    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
+    "tts en en ${MINIMAX_EVAL_PATH}"
+    "tts fr fr ${MINIMAX_EVAL_PATH}"
+    "tts de de ${MINIMAX_EVAL_PATH}"
+    "tts es es ${MINIMAX_EVAL_PATH}"
+    "tts pt pt ${MINIMAX_EVAL_PATH}"
     "zero_shot fr fr ${CV3_EVAL_PATH}"
     "zero_shot de de ${CV3_EVAL_PATH}"
     "zero_shot es es ${CV3_EVAL_PATH}"
@@ -53,6 +59,7 @@ MODEL_CONFIGS=(
     "gradium/phonon-40m-fr"
     "gradium/phonon-40m-de"
     "gradium/phonon-40m-es"
+    "gradium/phonon-40m-pt"
 )
 [[ $# -eq 0 ]] || MODEL_CONFIGS=("$@")
 
@@ -63,7 +70,7 @@ done
 [[ "$PHONON_THREADS" =~ ^[1-8]$ ]] || fail "Use 1–8 CPU threads."
 for model in "${MODEL_CONFIGS[@]}"; do
     case "$model" in
-        gradium/phonon-31m-en|gradium/phonon-40m-en|gradium/phonon-40m-fr|gradium/phonon-40m-de|gradium/phonon-40m-es) ;;
+        gradium/phonon-31m-en|gradium/phonon-40m-en|gradium/phonon-40m-fr|gradium/phonon-40m-de|gradium/phonon-40m-es|gradium/phonon-40m-pt) ;;
         *) fail "Select a released checkpoint." ;;
     esac
 done

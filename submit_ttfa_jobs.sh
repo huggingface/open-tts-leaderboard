@@ -138,7 +138,14 @@ TTFA_TARGETS=(
     "kokoro|kokoro|bezzam/evals-kokoro|hexgrad/Kokoro-82M|"
     # GPU only: liquid-audio hard-codes its detokenizer to CUDA (audiocpp-lfm2-audio below covers CPU).
     "lfm2-audio|lfm2-audio|bezzam/evals-lfm2-audio|LiquidAI/LFM2.5-Audio-1.5B|--voice=us_female"
+    # Streams: the codec decodes the first speech frame as soon as it is sampled (lfm3-audio/run_eval.py).
+    "lfm3-audio|lfm3-audio|bezzam/evals-lfm3-audio|LiquidAI/LFM3-Audio-2B|--voice=female"
     "magpie-tts|magpie-tts|bezzam/evals-magpie|nvidia/magpie_tts_multilingual_357m|--speaker=Sofia --language=${TTFA_LANG}"
+    # GPU only (the engine's fused kernels are Triton). Streams: the engine emits PCM per 80 ms frame.
+    "maya2|maya2|bezzam/evals-maya2|maya-research/maya2-native|--voice=Ahana"
+    # GPU only (the model's code hard-codes CUDA autocast). Streams: the VAE decoder's streaming path
+    # decodes the first latent patch as soon as it is sampled (ming-tts/run_eval.py).
+    "ming-tts|ming-tts|bezzam/evals-ming-tts|inclusionAI/Ming-3.0-tts-0.5B|"
     "moss-tts|moss-tts|bezzam/evals-moss|OpenMOSS-Team/MOSS-TTS|"
     "neutts-nano|neutts-nano|bezzam/evals-neutts|neuphonic/neutts-nano|"
     # Same image, quantized backbone. NeuTTS only streams on the gguf path; the torch target above
@@ -174,11 +181,15 @@ TTFA_TARGETS=(
     # The same models through 0xShug0/audio.cpp (ggml C++), served by audiocpp_server's SSE
     # streaming endpoint (see audiocpp/run_eval.py).
     # The Space's image tag is per device:  TTFA_DEVICE=cpu AUDIOCPP_SPACE=bezzam/evals-audiocpp-cpu ...
+    "audiocpp-qwen3tts|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice|--language=${TTFA_LANG}|audiocpp"
     "audiocpp-voxcpm2|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|openbmb/VoxCPM2||audiocpp"
     "audiocpp-supertonic|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|Supertone/supertonic-3|--language=${TTFA_LANG}|audiocpp"
     "audiocpp-pocket-tts|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|kyutai/pocket-tts||audiocpp"
     "audiocpp-breeze-tts|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|BreezeBlue/Breeze-TTS-2|--language=${TTFA_LANG}|audiocpp"
     "audiocpp-omnivoice|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|k2-fsa/OmniVoice|--language=${TTFA_LANG}|audiocpp"
+    "audiocpp-fish-s2-pro|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|fishaudio/s2-pro||audiocpp"
+    "audiocpp-vibevoice|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|microsoft/VibeVoice-1.5B||audiocpp"
+    "audiocpp-voxtral-tts|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|mistralai/Voxtral-4B-TTS-2603||audiocpp"
     # Streaming models that are only on the TTFA tab (no WER/RTFx backend).
     "audiocpp-kugelaudio|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|kugelaudio/kugelaudio-0-open||audiocpp"
     "audiocpp-neutts-2e|audiocpp|${AUDIOCPP_SPACE:-bezzam/evals-audiocpp}|neuphonic/neutts-2e||audiocpp"
@@ -210,7 +221,7 @@ if ${PHONON_SELECTED}; then
 fi
 
 # Backends whose run_eval.py has no --voice_clone flag at all; passing one would be an error.
-NO_CLONE_FLAG="inflect-nano inflect-v2 kokoro lfm2-audio magpie-tts paradee phonon photon qwen3tts qwen3tts-fast supertonic vibevoice_realtime voxtral-tts"
+NO_CLONE_FLAG="inflect-nano inflect-v2 kokoro lfm2-audio lfm3-audio magpie-tts paradee phonon photon qwen3tts qwen3tts-fast supertonic vibevoice_realtime voxtral-tts"
 
 # run_eval.py writes to its own output roots (outside Git, mode 0700) and names the sidecar itself,
 # so Phonon skips the generic run/rename/copy below; `preamble` is submit_one's CPU thread cap.

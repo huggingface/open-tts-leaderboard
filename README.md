@@ -7,6 +7,7 @@ This repository contains the code for the Open TTS Leaderboard. The leaderboard 
 The following datasets are used in the Open TTS Leaderboard:
 1. [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval) (`tts` config): `en` (English) and `zh` (Chinese).
 2. [CV3 Eval](https://github.com/QwenAudio/CV3-Eval): `en`, `zh`, `fr` (French), `es` (Spanish), `ja` (Japanese), `ko` (Korean), `it` (Italian), `de` (German), and `ru` (Russian) (`zero_shot` config, 500 samples per language).
+3. [MiniMax Multilingual](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) (`tts` config): 100 samples x 24 languages. (Thai is scored with CER; Ukrainian is not supported by ASR)
 
 While human preference is the ultimate decider, **arenas cannot scale to keep up with the pace of TTS releases**. To this end, we use objective metrics to evaluate models on complementary aspects of performance:
 
@@ -73,6 +74,8 @@ Unfortunately the licenses of [Seed TTS](https://github.com/BytedanceSpeech/seed
 (tts_leaderboard) python scripts/prepare_cv3_eval.py YOUR_USERNAME/cv3_eval
 ```
 Keep the repo names (`seed_tts_eval`, `cv3_eval`) as above, so that `DATASET_NAMESPACE=YOUR_USERNAME` points every job at your copies.
+
+The [MiniMax](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) test set is CC BY-SA 4.0, so it is redistributed publicly as [hf-audio/minimax_eval](https://huggingface.co/datasets/hf-audio/minimax_eval) and jobs use it by default (`MINIMAX_EVAL_PATH`); no copy of your own is needed.
 
 
 #### 4. Smoke test
@@ -141,7 +144,7 @@ flowchart LR
 2. **Transcribe** (`transcribe`): [transformers/transcribe.py](transformers/transcribe.py) transcribes the wavs with [Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf), using the split's language as a hint.
 3. **Speaker similarity** (`sim`, voice cloning only): [transformers/score_similarity.py](transformers/score_similarity.py) compares each generated clip with its reference prompt, using the [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval#metrics) speaker-verification model (WavLM-large + ECAPA-TDNN, mirrored [here](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval)).
 4. **UTMOS** (`utmos`, `UTMOS_LANGS` only): [transformers/score_utmos.py](transformers/score_utmos.py) predicts a MOS for each wav with UTMOS22 strong.
-5. **KOMOS** (`komos`, opt-in, `KOMOS_LANGS` only): [transformers/score_komos.py](transformers/score_komos.py) scores Korean audio with `komos==0.0.2` and a pinned checkpoint in an isolated environment.
+5. **KOMOS** (`komos`, optional, Korean only): [transformers/score_komos.py](transformers/score_komos.py) scores Korean audio with `komos==0.0.2` and a pinned checkpoint in an isolated environment.
 6. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
    - **WER** after text normalization (CER for `zh`, `ja`, `ko`)
    - **RTFx**: total audio duration divided by total generation time, measured in stage 1
@@ -171,12 +174,10 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
 | `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |
-| `STAGES` | `generate transcribe sim utmos` | Subset of stages; add `komos` for the Korean pilot, or use `"komos"` to re-score existing wavs |
-| `KOMOS_LANGS` | `ko` | Split language codes eligible for the KOMOS job; publication remains Korean-only |
-| `KOMOS_OVERWRITE` | `false` | Discard cached KOMOS scores; forced when `generate` also runs |
-| `KOMOS_FLAVOR` / `KOMOS_DEVICE` | `l4x1` / `cuda:0` | Hardware and PyTorch device for the optional KOMOS job |
+| `ONLY_DATASETS` | (all) | Only run the configured splits of these dataset repos (name after the namespace), e.g. `"minimax_eval"` |
+| `STAGES` | `generate transcribe sim utmos` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs. Add the optional `komos` stage to score Korean (`ko`) outputs |
 | `VOICE_CLONE` | `false` | Clone the prompt speaker (backends that support both modes) |
-| `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. **Set `SIM_OVERWRITE=true` after regenerating audio**, otherwise old SIM scores are carried over |
+| `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. SIM is always recomputed when `generate` runs; set `SIM_OVERWRITE=true` only to re-score existing audio with `STAGES="sim"` |
 | `ORG_NAME` | (none) | Run the jobs under an organization's namespace |
 
 Examples:
@@ -211,9 +212,9 @@ uv run --no-project --with komos==0.0.2 python transformers/score_komos.py \
 
 The scorer writes `KOMOS_<manifest stem>.json` beside the read-only manifest (or under
 `--output_dir`). It resumes completed files, records clips shorter than 0.1 seconds as
-`null`, and retries missing/unreadable files on the next run. `--overwrite` (or
-`KOMOS_OVERWRITE=true` for jobs) is required after regenerating audio or changing
-preprocessing/model provenance. `--save_every` controls atomic checkpoint saves.
+`null`, and retries missing/unreadable files on the next run. `--overwrite` is required
+after changing preprocessing/model provenance (jobs pass it automatically when `generate`
+also runs). `--save_every` controls atomic checkpoint saves.
 
 `score_long_form()` evaluates duration-weighted, non-overlapping 10-second windows,
 then calibrates to the 1–5 scale. Like the other metrics, the job evaluates the first
@@ -271,7 +272,7 @@ Seamless is fast and batched, so most of each of its generation jobs (~1 min per
 > [!TIP]
 > **Let your coding agent do the heavy lifting!** Ask it to:
 > - make a new folder to evaluate the new model, linking it to a documentation page with usage
-> - use batch inference if possible
+> - use batch inference if possible, with max batch size of 32
 > - implement the TTFA probe if the model supports streaming
 > - (if you give it permission to your HF account) make a Docker Space to run the model via HF Jobs, taking inspiration from one of the existing configurations [here](https://huggingface.co/collections/bezzam/tts-eval)
 

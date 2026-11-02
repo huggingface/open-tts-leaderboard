@@ -40,16 +40,17 @@ from run_eval_utils import (
 
 MODEL_REVISIONS = {
     "gradium/phonon-31m-en": "92741c5b07d085ff840e26fea8ce43110b87852f",
-    "gradium/phonon-40m-en": "cc738b7e4d182c2ba1bafb8062aa4846af000637",
+    "gradium/phonon-40m-en": "bc7e8ae7e543a7a3e4604753e42fbda76ddf0781",
     "gradium/phonon-40m-fr": "d91086970206b88efd2c88ca971d0628b5968f0f",
     "gradium/phonon-40m-de": "79cfc7b47fcfc0b666657b981eb366415023a862",
-    "gradium/phonon-40m-es": "f0d2f39c9b58ad4c19a189e3ba989ee4df393cc5",
+    "gradium/phonon-40m-es": "e5e052b26e31abd5918ade71d3135e69d51a66f8",
+    "gradium/phonon-40m-pt": "4cbfd742a1555d60eb5399c6d296e9f2e07389e9",
 }
 
 # Voice cloning: voices/<SHA-256 of a reference clip>.safetensors holds that clip's speaker latents,
 # and index.json maps "<dataset>/<config>/<split>" to {row id: SHA-256}.
 CLONE_VOICES_REPO = "gradium/phonon-leaderboard-clone-voices"
-CLONE_VOICES_REVISION = "371ec7081c59ca7a50b6c2bdf819409b74bd3e7a"
+CLONE_VOICES_REVISION = "b394ef2baf1d8db9c695bdc9acb0cb1693eff005"
 
 
 def file_hash(path):
@@ -410,8 +411,8 @@ def load_clone_voices(args):
 def main(args):
     if args.voice_clone and (args.ttfa_probe or args.voice != "default"):
         raise ValueError("Voice cloning replaces the preset voice and has no TTFA path.")
-    if args.device != "cpu" or args.split not in ("en", "fr", "de", "es"):
-        raise ValueError("This q8_0 path supports English, French, German and Spanish on CPU only.")
+    if args.device != "cpu" or args.split not in ("en", "fr", "de", "es", "pt"):
+        raise ValueError("This q8_0 path supports English, French, German, Spanish and Portuguese on CPU only.")
     if args.ttfa_probe and args.split != "en":
         raise ValueError("TTFA measures the English split only; A100/CUDA TTFA is unavailable.")
     if getattr(args, "ttfa_mode", "blocking") not in ("blocking", "streaming"):
@@ -643,7 +644,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_revision", help="Immutable dataset commit; resolves current Hub revision if omitted.")
     parser.add_argument("--temperature", type=float, default=0.3)
     parser.add_argument("--eos_threshold", type=float, default=4.0)
-    parser.add_argument("--conditions", type=json.loads, default={"num_speakers": "1", "duration_delta": 0.0})
+    parser.add_argument("--conditions", type=json.loads, default={"num_speakers": "1", "duration_delta": 0.3})
     parser.add_argument("--rewrites", choices=("default", "all", "none"), default="default")
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--ttfa_output_root", help="Separate private root for TTFA sidecars only.")

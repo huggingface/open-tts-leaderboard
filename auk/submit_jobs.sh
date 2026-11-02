@@ -69,6 +69,9 @@ DATASET_CONFIGS=(
     "tts zh zh"
     "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
     "zero_shot zh zh ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
+    "tts en en ${MINIMAX_EVAL_PATH}"
+    "tts zh zh ${MINIMAX_EVAL_PATH}"
 )
 
 # ── Models: "model_id [batch_size] [duration_scale]" (CLI args override) ─────
