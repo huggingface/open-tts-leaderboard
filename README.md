@@ -192,49 +192,6 @@ VOICE_CLONE=true bash transformers/submit_jobs.sh "vibevoice/VibeVoice-1.5B-hf 3
 python scripts/score_model.py --model_id hexgrad/Kokoro-82M --language en
 ```
 
-### Korean KOMOS pilot
-
-Re-score existing Korean results without regeneration:
-
-```bash
-STAGES="komos" ONLY_LANGS="ko" MAX_EVAL_SAMPLES=8 bash omnivoice/submit_jobs.sh
-# Include the diagnostic in a full run:
-STAGES="generate transcribe sim utmos komos" ONLY_LANGS="ko" bash omnivoice/submit_jobs.sh
-```
-
-For a local CPU smoke test, install KOMOS in its own environment and point at a Korean
-manifest whose relative `audio_filepath` entries resolve to generated wavs:
-
-```bash
-uv run --no-project --with komos==0.0.2 python transformers/score_komos.py \
-  --manifest_paths results/<model>/MODEL_..._ko.jsonl --max_rows 8 --device cpu
-```
-
-The scorer writes `KOMOS_<manifest stem>.json` beside the read-only manifest (or under
-`--output_dir`). It resumes completed files, records clips shorter than 0.1 seconds as
-`null`, and retries missing/unreadable files on the next run. `--overwrite` is required
-after changing preprocessing/model provenance (jobs pass it automatically when `generate`
-also runs). `--save_every` controls atomic checkpoint saves.
-
-`score_long_form()` evaluates duration-weighted, non-overlapping 10-second windows,
-then calibrates to the 1–5 scale. Like the other metrics, the job evaluates the first
-`MAX_AUDIO_SECONDS` seconds (default 30, at most 60 for KOMOS). `0` disables clipping;
-files over 60 seconds then fail explicitly and must be split externally. This is a
-Korean diagnostic, not a cross-language replacement for UTMOS.
-
-`score_results` reads the sidecar for Korean plain and SIM-fork manifests.
-`scripts/open_results_pr.py` adds `ko KOMOS`, `ko KOMOS samples` and `ko KOMOS model`
-columns to the CV3 tables only when scores exist. The model cell records the checkpoint
-revision, package version and preprocessing policy. No `avg KOMOS` or rank input is
-added. Sidecars sync from the normal results bucket; `--komos_bucket` can override
-their source. The same language-gated stage works with MiniMax Korean manifests when
-that evaluation set is integrated (#7); this PR does not add MiniMax dataset plumbing.
-
-An L4 is the proposed job default; validate runtime/memory on a small Korean split
-before launching full GPU evaluations. Local CPU validation does not establish L4
-performance. Run the download-free regression suite with
-`uv run --no-project --with pytest --with numpy --with soundfile --with kaldialign --with num2words --with zhconv --with huggingface_hub python -m pytest tests -q`.
-
 Job logs are written to `<backend>/job_logs/`. Live status is at https://huggingface.co/settings/jobs.
 
 #### Publishing results

@@ -359,9 +359,7 @@ def collect_values(target, header_languages, records, scored, scored_xvector):
         if result.get("utmos") is not None:
             values[f"{language} UTMOS"] = fmt(result["utmos"])
         if language in KOMOS_LANGUAGES and result.get("komos") is not None:
-            values[f"{language} KOMOS"] = fmt(result["komos"], digits=3)
-            values[f"{language} KOMOS samples"] = str(result["komos_count"])
-            values[f"{language} KOMOS model"] = result["komos_model"]
+            values[f"{language} KOMOS"] = fmt(result["komos"])
         if target.xvector_sim:
             legacy = scored_xvector.get(dataset_id)
             if legacy is not None and legacy.get("sim") is not None:
@@ -476,9 +474,8 @@ def add_utmos_columns(published, languages):
 
 
 def add_komos_columns(published, languages):
-    """Append Korean diagnostic/provenance columns without adding an average."""
-    columns = [f"{lang} KOMOS{suffix}" for lang in languages if lang in KOMOS_LANGUAGES
-               for suffix in ("", " samples", " model")]
+    """Append the Korean KOMOS column without adding an average."""
+    columns = [f"{lang} KOMOS" for lang in languages if lang in KOMOS_LANGUAGES]
     missing = [column for column in columns if column not in published.header]
     return extend_header(published, published.header + missing) if missing else published
 
