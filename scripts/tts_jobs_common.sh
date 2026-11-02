@@ -49,7 +49,6 @@ FLAVOR="${FLAVOR:-h200}"
 ASR_FLAVOR="${ASR_FLAVOR:-l4x1}"             # stage 2 flavor
 SIM_FLAVOR="${SIM_FLAVOR:-l4x1}"             # stage 3 flavor
 KOMOS_FLAVOR="${KOMOS_FLAVOR:-l4x1}"         # optional Korean MOS stage
-KOMOS_DEVICE="${KOMOS_DEVICE:-cuda:0}"
 UTMOS_FLAVOR="${UTMOS_FLAVOR:-l4x1}"         # stage 4 flavor
 MAX_EVAL_SAMPLES="${MAX_EVAL_SAMPLES:--1}"   # -1 = all; set e.g. 8 to smoke-test
 # Restrict a run to some of the backend's DATASET_CONFIGS: space-separated asr_language codes
@@ -78,8 +77,7 @@ ASR_OVERWRITE="${ASR_OVERWRITE:-false}"
 UTMOS_OVERWRITE="${UTMOS_OVERWRITE:-false}"
 # Languages (asr_language) that get stage 4; keep in sync with UTMOS_LANGUAGES in normalizer/eval_utils.py.
 UTMOS_LANGS="${UTMOS_LANGS:-en}"
-# KOMOS is an opt-in stage, e.g. STAGES="komos" ONLY_LANGS="ko".
-KOMOS_LANGS="${KOMOS_LANGS:-ko}"
+# Same for the optional `komos` stage, which only runs on Korean (ko) splits.
 KOMOS_OVERWRITE="${KOMOS_OVERWRITE:-false}"
 MAX_AUDIO_SECONDS="${MAX_AUDIO_SECONDS:-30}" # clip cap for ASR + SIM + UTMOS + KOMOS (0 = no cap)
 # Clone each sample's prompt speaker (+ SIM stage) on backends that support it; false = the model's
@@ -102,7 +100,6 @@ SCORER_IMAGE="hf.co/spaces/${SPACE}"
 # expose the same columns the backends read: `text` + `prompt_text`/`prompt_audio` when cloning.
 DATASET_CONFIGS=("tts en en")
 
-komos_language() { [[ " ${KOMOS_LANGS} " == *" $1 "* ]]; }
 utmos_language() { [[ " ${UTMOS_LANGS} " == *" $1 "* ]]; }
 stage_enabled() { [[ " ${STAGES} " == *" $1 "* ]]; }
 
@@ -282,7 +279,7 @@ komos_stage() {
             uv venv --python python /tmp/komos-env &&
             uv pip install --python /tmp/komos-env/bin/python 'torch==2.8.0' --index-url https://download.pytorch.org/whl/cu128 &&
             uv pip install --python /tmp/komos-env/bin/python 'komos==0.0.2' &&
-            /tmp/komos-env/bin/python /app/transformers/score_komos.py --manifest_paths ${BUCKET_MANIFEST} --max_rows=${MAX_EVAL_SAMPLES} --max_audio_seconds=${MAX_AUDIO_SECONDS} --device=${KOMOS_DEVICE}${KOMOS_OVERWRITE_FLAG}
+            /tmp/komos-env/bin/python /app/transformers/score_komos.py --manifest_paths ${BUCKET_MANIFEST} --max_rows=${MAX_EVAL_SAMPLES} --max_audio_seconds=${MAX_AUDIO_SECONDS} --device=cuda:0${KOMOS_OVERWRITE_FLAG}
         "
 }
 
@@ -328,7 +325,7 @@ _wait_and_score() {
             [[ -s "./results/${MODEL_FOLDER}/${name}" ]] || missing+=("${name}")
             stage_enabled utmos && utmos_language "${LANGS[$i]}" && [[ ! -s "./results/${MODEL_FOLDER}/UTMOS_${name%.jsonl}.json" ]] &&
                 missing+=("UTMOS_${name%.jsonl}.json")
-            stage_enabled komos && komos_language "${LANGS[$i]}" && [[ ! -s "./results/${MODEL_FOLDER}/KOMOS_${name%.jsonl}.json" ]] &&
+            stage_enabled komos && [[ "${LANGS[$i]}" == ko ]] && [[ ! -s "./results/${MODEL_FOLDER}/KOMOS_${name%.jsonl}.json" ]] &&
                 missing+=("KOMOS_${name%.jsonl}.json")
         done
         [[ ${#missing[@]} -eq 0 ]] && break
@@ -442,7 +439,7 @@ run_pipeline() {
                 stage_enabled transcribe && run_stage transcribe_stage
                 stage_enabled sim && [[ "${CLONE}" == "true" ]] && run_stage sim_stage
                 stage_enabled utmos && utmos_language "${ASR_LANG}" && run_stage utmos_stage
-                stage_enabled komos && komos_language "${ASR_LANG}" && run_stage komos_stage
+                stage_enabled komos && [[ "${ASR_LANG}" == ko ]] && run_stage komos_stage
                 true   # ensure subshell exit status is 0 when the last `&&` chain is a skipped stage
             ) > "${CHAIN_LOG}" 2>&1 &
             PIDS+=("$!"); TAGS+=("${DATASET_PATH##*/}/${DATASET}/${SPLIT}"); CHAIN_LOGS+=("${CHAIN_LOG}")

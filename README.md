@@ -14,7 +14,7 @@ While human preference is the ultimate decider, **arenas cannot scale to keep up
 1. **Intelligibility**: word/character error rate (WER and CER) between the target text and the generated audio's transcript, using [Qwen3 ASR](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf) (top ranking open-source model on the [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard)).
 2. **Speed**: inverse real-time factor (RTFx) for batched offline inference on an H200 GPU, and time-to-first-audio (TTFA) for quantifying streaming batch size 1 latency on an A100 GPU and CPU.
 3. **Speaker similarity** by computing the cosine similarity (SIM) between [WavLM speaker embeddings](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval) of the generated audio and the reference clip. Note that not all models support voice cloning, so those models are omitted from this evaluation.
-4. **Naturalness**: predicted MOS (1-5) with [UTMOS22 strong](https://github.com/tarepan/SpeechMOS) (UTMOS). UTMOS22 is trained on English only, so it is reported for `en` only. An optional [KOMOS](https://github.com/upskyy/komos) pilot reports Korean predicted MOS for `ko`, separately from UTMOS and without affecting averages or ranking.
+4. **Naturalness**: predicted MOS (1-5) with [UTMOS22 strong](https://github.com/tarepan/SpeechMOS) (UTMOS). UTMOS22 is trained on English only, so it is reported for `en` only. An optional [KOMOS](https://github.com/upskyy/komos) pilot reports Korean predicted MOS for `ko`.
 
 By relying on objective metrics **evaluating a model drops from a couple weeks (for collecting votes) to a couple hours** ⚡
 
