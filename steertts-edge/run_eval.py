@@ -48,7 +48,8 @@ def main(args):
         if is_cuda:
             torch.cuda.synchronize()
         start = time.perf_counter()
-        audio = np.asarray(tts(text, voice=voice), dtype=np.float32)
+        kw = dict(level=args.level) if args.level else {}
+        audio = np.asarray(tts(text, voice=voice, **kw), dtype=np.float32)
         if is_cuda:
             torch.cuda.synchronize()
         return audio, time.perf_counter() - start
@@ -82,6 +83,9 @@ if __name__ == "__main__":
     parser.add_argument("--revision", type=str, default=None, help="HF revision (tag / commit) of --model_id.")
     parser.add_argument("--model_path", type=str, default=None, help="Local package directory (overrides --model_id).")
     parser.add_argument("--voice", type=str, default=None, help="Built-in voice (default: the package's default_voice).")
+    parser.add_argument("--level", choices=["auto", "clip", "off"], default=None,
+                        help="Output level (steertts-edge >= 2.1.0 only; default: the release's own default, i.e. "
+                             "what users get: auto = -17 LUFS neutral speech, -1 dBTP; off = the raw output of 2.0.0).")
     add_common_args(parser, voice_clone=False)
     args = parser.parse_args()
     print("*" * 100)

@@ -56,7 +56,8 @@ def main(args):
         return prel, ppath
 
     def request(text, ref):
-        return dict(text=text, ref_wav=ref) if ref else dict(text=text, voice=voice)
+        r = dict(text=text, ref_wav=ref) if ref else dict(text=text, voice=voice)
+        return dict(r, level=args.level) if args.level else r
 
     def synth_one(text, ref=None):
         if is_cuda:
@@ -133,6 +134,9 @@ if __name__ == "__main__":
     parser.add_argument("--model_path", type=str, default=None, help="Local model directory (overrides --model_id).")
     parser.add_argument("--voice", type=str, default=None, help="Built-in voice (default: the model's default_voice).")
     parser.add_argument("--no_flow", action="store_true", help="Skip the flow refiner (faster, slightly hazier).")
+    parser.add_argument("--level", choices=["auto", "clip", "off"], default=None,
+                        help="Output level (steertts >= 1.4.0 only; default: the release's own default, i.e. what "
+                             "users get: auto = -17 LUFS neutral speech, -1 dBTP; off = the raw output of <= 1.3.0).")
     add_common_args(parser, voice_clone=False)
     args = parser.parse_args()
     print("*" * 100)
