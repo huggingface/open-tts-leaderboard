@@ -67,7 +67,7 @@ sys.path.insert(0, REPO_ROOT)  # so `from normalizer import ...` resolves regard
 from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download  # noqa: E402
 from huggingface_hub.errors import EntryNotFoundError  # noqa: E402
 
-from normalizer.eval_utils import SIM_BACKEND_SUFFIXES, UTMOS_COLUMN_LANGUAGES, default_multilingual, score_results  # noqa: E402
+from normalizer.eval_utils import SIM_BACKEND_SUFFIXES, UTMOS_COLUMN_LANGUAGES, KOMOS_LANGUAGES, default_multilingual, score_results  # noqa: E402
 
 # Where the results live, and where they are published.
 RESULTS_BUCKET = "hf-audio/tts_leaderboard_h200"
@@ -368,6 +368,8 @@ def collect_values(target, header_languages, records, scored, scored_xvector):
             values[f"{language} SIM"] = fmt(result["sim"])
         if result.get("utmos") is not None:
             values[f"{language} UTMOS"] = fmt(result["utmos"])
+        if language in KOMOS_LANGUAGES and result.get("komos") is not None:
+            values[f"{language} KOMOS"] = fmt(result["komos"])
         if target.xvector_sim:
             legacy = scored_xvector.get(dataset_id)
             if legacy is not None and legacy.get("sim") is not None:
@@ -489,6 +491,13 @@ def add_utmos_columns(published, languages):
     if any(column.startswith("avg ") for column in header):
         header.append("avg UTMOS")
     return extend_header(published, header)
+
+
+def add_komos_columns(published, languages):
+    """Append the Korean KOMOS column without adding an average."""
+    columns = [f"{lang} KOMOS" for lang in languages if lang in KOMOS_LANGUAGES]
+    missing = [column for column in columns if column not in published.header]
+    return extend_header(published, published.header + missing) if missing else published
 
 
 def add_note_column(published):
@@ -650,6 +659,7 @@ def main():
         help="Where to sync results (default: <repo>/results, same place submit_jobs.sh uses).",
     )
     parser.add_argument("--utmos_bucket", default=None, help="Bucket with the UTMOS sidecars (default: --bucket).")
+    parser.add_argument("--komos_bucket", default=None, help="Bucket with KOMOS sidecars (default: --bucket).")
     parser.add_argument("--skip_sync", action="store_true", help="Score already-downloaded results.")
     parser.add_argument(
         "--clean",
@@ -716,6 +726,8 @@ def main():
             sys.exit(1)
         if args.utmos_bucket:
             sync_bucket(args.utmos_bucket, model_folder, local_dir, args.hf_token, include="UTMOS_*.json")
+        if args.komos_bucket:
+            sync_bucket(args.komos_bucket, model_folder, local_dir, args.hf_token, include="KOMOS_*.json")
     if not os.path.isdir(model_dir):
         print(f"ERROR: no results directory for {args.model_id}: {model_dir}", file=sys.stderr)
         sys.exit(1)
@@ -801,6 +813,8 @@ def main():
             continue
         if any(column.endswith(" UTMOS") for column in values):
             published = add_utmos_columns(published, languages)
+        if any(column.endswith(" KOMOS") for column in values):
+            published = add_komos_columns(published, languages)
         # An empty --note only clears an existing note; it never adds the column.
         extra = {}
         if args.note:
