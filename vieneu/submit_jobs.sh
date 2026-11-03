@@ -5,11 +5,7 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common.sh"
 
 # ── Backend config ───────────────────────────────────────────────────────────
-# Stage 1 runs on a public PyTorch image and pip-installs the SDK at job start (no Docker Space needed).
-# Install time is before the timed loop, so RTFx is unaffected. To use a Space instead, build one that
-# installs the same packages and set VIENEU_IMAGE=hf.co/spaces/<id>.
-VIENEU_IMAGE="${VIENEU_IMAGE:-pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime}"
-VIENEU_PIP="${VIENEU_PIP:-vieneu[cuda]==3.8.3}"
+TTS_SPACE="${TTS_SPACE:-bezzam/evals-vieneu}"   # stage-1 image (Dockerfile in the Space: https://huggingface.co/spaces/bezzam/evals-vieneu/blob/main/Dockerfile)
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
 DEFAULT_STAGES="generate transcribe"           # no SIM (default voice); no UTMOS (English only)
 RUN_EVAL_INJECT="$(inject_run_eval)"
@@ -23,9 +19,8 @@ generate_stage() {
     read -r _ BATCH_SIZE <<< "${MODEL_CFG}"
     hf jobs run \
         --flavor "${FLAVOR}" --timeout "${GEN_TIMEOUT:-8h}" --secrets HF_TOKEN ${NAMESPACE_ARG} \
-        --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${VIENEU_IMAGE}" \
+        --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${TTS_IMAGE}" \
         bash -c "
-            pip install --no-cache-dir '${VIENEU_PIP}' 'transformers==4.57.6' soundfile 'datasets<4.0' tqdm numpy &&
             ${RUN_EVAL_INJECT}
             cd /app/vieneu && python run_eval.py \
                 --model_id=${MODEL_ID} \
