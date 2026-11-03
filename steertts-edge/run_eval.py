@@ -3,11 +3,11 @@ TTS synthesis for the Open TTS Leaderboard (SteerTTS edge backend, stage 1).
 
 SteerTTS edge is the 12 MB on-device build of SteerTTS: int4 acoustic model (9.25M parameters) + int4 vocoder
 (6.22M), 15.5M parameters in total, loaded in-process from the `steertts_edge` package (PyTorch runtime, `EdgeTTS`).
-English only, so only the `en` splits. Default voice = the release's own default voice (`voice_1688` in v2.0.0; no
+English only, so only the `en` splits. Default voice = the release's own default voice (`voice_1688` in v2.1.0; no
 test-set voice selection); no voice cloning. Rows are synthesized one at a time (no batched API); generation is timed
 after `--warmup_steps` untimed samples.
 
-    PYTHONPATH=scripts python steertts-edge/run_eval.py --model_id WhissleAI/steer-tts-edge --revision v2.0.0 \
+    PYTHONPATH=scripts python steertts-edge/run_eval.py --model_id WhissleAI/steer-tts-edge --revision v2.1.0 \
         --dataset_path YOUR_USERNAME/seed_tts_eval \
         --dataset tts --split en --device cuda:0 [--model_path /local/steer-tts-edge]
 """

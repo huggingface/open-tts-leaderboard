@@ -3,12 +3,12 @@ TTS synthesis for the Open TTS Leaderboard (SteerTTS backend, stage 1).
 
 SteerTTS is a 9.6M-parameter acoustic model + Vocos (23.1M total; +17.6M flow refiner by default, or the 24.7M
 prompted flow when cloning), loaded in-process from the `steertts` package. English only, so only the `en` splits.
-Default voice = the release's own default voice (`voice_1688` in v1.3.0; no test-set voice selection); `--voice_clone` clones each sample's
+Default voice = the release's own default voice (`voice_1688` in v1.4.0; no test-set voice selection); `--voice_clone` clones each sample's
 `prompt_audio` (WavLM speaker vector + prompted flow; `prompt_text` is not used). Rows are synthesized one at a
 time (no batched API); generation is timed after `--warmup_steps` untimed samples. `--ttfa_probe` times the first
 sentence chunk of `SteerTTS.stream()` (sentence-level streaming).
 
-    PYTHONPATH=scripts python steertts/run_eval.py --model_id WhissleAI/steer-tts --revision v1.3.0 \
+    PYTHONPATH=scripts python steertts/run_eval.py --model_id WhissleAI/steer-tts --revision v1.4.0 \
         --dataset_path YOUR_USERNAME/seed_tts_eval \
         --dataset tts --split en --device cuda:0 [--voice_clone] [--model_path /local/steer-tts]
 """

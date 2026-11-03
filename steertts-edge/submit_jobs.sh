@@ -10,7 +10,7 @@ TTS_SPACE="${TTS_SPACE:-bezzam/evals-steertts}"   # stage-1 image (Dockerfile in
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
 DEFAULT_STAGES="generate transcribe utmos"
 SUPPORTS_VOICE_CLONE=false
-STEERTTS_REVISION="${STEERTTS_REVISION:-v2.0.0}"     # pinned release of the model repo
+STEERTTS_REVISION="${STEERTTS_REVISION:-v2.1.0}"     # pinned release of the model repo
 RUN_EVAL_INJECT="$(inject_run_eval)"
 supports_language() { [[ "$1" == "en" ]]; }
 
