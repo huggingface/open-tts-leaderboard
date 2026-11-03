@@ -24,6 +24,10 @@ Usage:
 
     # re-use results already synced locally, and open the PR
     python scripts/rescore_all.py --skip_sync --open_pr
+
+    # one language only (e.g. after a Vietnamese-only normalizer change): only rows with a
+    # published `vi WER` are synced and scored, and only `vi WER` and `avg WER` can change
+    python scripts/rescore_all.py --targets minimax minimax_voice_clone --languages vi
 """
 
 import argparse
@@ -81,13 +85,28 @@ def as_float(raw):
         return None
 
 
-def rescore_row(header, old_row, values, rtfx_tol, force):
-    """New row with only the WER cells (and avg WER) replaced. Returns (row, changes, skipped)."""
+def has_published_wer(header, row, languages):
+    """Whether `row` has a non-blank `<lang> WER` for any of `languages`."""
+    columns = {column: i for i, column in enumerate(header)}
+    for language in languages:
+        i = columns.get(f"{language} WER")
+        if i is not None and i < len(row) and row[i].strip():
+            return True
+    return False
+
+
+def rescore_row(header, old_row, values, rtfx_tol, force, languages=None):
+    """New row with only the WER cells (and avg WER) replaced. Returns (row, changes, skipped).
+
+    With `languages`, only those languages' WER cells are replaced.
+    """
     columns = {column: i for i, column in enumerate(header)}
     padded = old_row + [""] * (len(header) - len(old_row))
     new_row = list(padded)
     skipped = []
     for language in header_languages(header):
+        if languages and language not in languages:
+            continue
         wer_column = f"{language} WER"
         if wer_column not in values or wer_column not in columns:
             continue
@@ -128,6 +147,12 @@ def main():
         help="Benchmark files to rescore (default: all; streaming.csv is never rescored).",
     )
     parser.add_argument("--models", nargs="+", default=None, help="Only these published row names.")
+    parser.add_argument(
+        "--languages",
+        nargs="+",
+        default=None,
+        help="Only rescore these languages (e.g. vi). Rows with none of them published are skipped.",
+    )
     parser.add_argument("--bucket", default=RESULTS_BUCKET, help="Override the source bucket.")
     parser.add_argument("--local_dir", default=None, help="Where to sync results (default: <repo>/results).")
     parser.add_argument("--skip_sync", action="store_true", help="Score already-downloaded results.")
@@ -168,6 +193,8 @@ def main():
                 continue
             if name not in on_all_benchmarks:
                 continue
+            if args.languages and not has_published_wer(csv_file.header, row, args.languages):
+                continue
             if name in seen:
                 print(f"WARNING: {TARGETS[key].filename} lists '{name}' more than once; all copies are updated.")
             seen.add(name)
@@ -197,6 +224,8 @@ def main():
         selection, by_language = {}, {}
         for key in keys:
             records, _ = select_manifests(model_dir, model_safe, TARGETS[key], variant)
+            if args.languages:
+                records = {stem: lang for stem, lang in records.items() if lang in args.languages}
             if records:
                 selection[key] = records
                 for stem, language in records.items():
@@ -213,7 +242,9 @@ def main():
             for index, row in enumerate(csv_file.rows):
                 if row[0].strip() not in keys[key]:
                     continue
-                new_row, changes, skipped = rescore_row(header, row, values, args.rtfx_tol, args.force)
+                new_row, changes, skipped = rescore_row(
+                    header, row, values, args.rtfx_tol, args.force, args.languages
+                )
                 report.append((TARGETS[key].filename, row[0].strip(), changes, skipped))
                 if changes:
                     # Splicing keeps every row's position, so the indices stay valid after re-parsing.
