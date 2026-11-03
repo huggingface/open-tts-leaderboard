@@ -5,11 +5,7 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common.sh"
 
 # ── Backend config ───────────────────────────────────────────────────────────
-# Stage 1 runs on a public PyTorch image and pip-installs the model package at job start (no Docker Space
-# needed). Install time is before the timed loop, so RTFx is unaffected. To use a Space instead, build one
-# that installs the same packages and set KVI_IMAGE=hf.co/spaces/<id>.
-KVI_IMAGE="${KVI_IMAGE:-pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime}"
-KVI_PIP="${KVI_PIP:-https://github.com/iamdinhthuan/Kokoro-Vietnamese/archive/a249afe5555aec6c435165c2f61ec0f71284812f.zip}"
+TTS_SPACE="${TTS_SPACE:-bezzam/evals-kokoro-vi}"   # stage-1 image (Dockerfile in the Space: https://huggingface.co/spaces/bezzam/evals-kokoro-vi/blob/main/Dockerfile)
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
 DEFAULT_STAGES="generate transcribe"   # no SIM (fixed voice); no UTMOS (English only)
 RUN_EVAL_INJECT="$(inject_run_eval)"
@@ -22,9 +18,8 @@ supports_language() { [[ "$1" == "vi" ]]; }
 generate_stage() {
     hf jobs run \
         --flavor "${FLAVOR}" --timeout "${GEN_TIMEOUT:-8h}" --secrets HF_TOKEN ${NAMESPACE_ARG} \
-        --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${KVI_IMAGE}" \
+        --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${TTS_IMAGE}" \
         bash -c "
-            pip install --no-cache-dir '${KVI_PIP}' soundfile 'datasets<4.0' tqdm numpy &&
             ${RUN_EVAL_INJECT}
             cd /app/kokoro-vietnamese && python run_eval.py \
                 --model_id=${MODEL_ID} \
