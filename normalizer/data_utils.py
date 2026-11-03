@@ -2,6 +2,7 @@ import re
 
 import num2words
 from normalizer import EnglishTextNormalizer, BasicMultilingualTextNormalizer
+from normalizer.persian import PersianTextNormalizer
 
 
 class MultilingualNormalizer(BasicMultilingualTextNormalizer):
@@ -35,6 +36,8 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
         return text.replace("%", " phần trăm")
 
     def __call__(self, s, lang=None):
+        if lang == "fa":
+            return persian_normalizer(s)
         if lang == "vi":
             s = self._normalize_vi_numbers(s)
         s = super().__call__(s)
@@ -44,6 +47,8 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
 
 
 normalizer = EnglishTextNormalizer()
+
+persian_normalizer = PersianTextNormalizer()
 
 ml_normalizer = MultilingualNormalizer(remove_diacritics=False)
 

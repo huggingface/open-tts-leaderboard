@@ -29,8 +29,10 @@ _CJK_PATTERN = re.compile(
 
 # Language codes that must be scored with CER. The single source of truth for the CJK list.
 CJK_LANGUAGES = {"zh", "yue", "cmn", "ja", "jpn", "ko", "kor"}
-# Other scripts without word delimiters: ml_normalizer, then scored per character (CER).
-CHAR_LANGUAGES = {"th"}
+# Other languages scored per character (CER, spaces removed) after their own normalizer: Thai has no
+# word delimiters; Persian's are optional (half-space, space or joined: می‌روم / می روم / میروم),
+# so WER would mostly count spelling conventions of the TTS input and the ASR output.
+CHAR_LANGUAGES = {"th", "fa"}
 
 
 def is_cjk_language(language: str) -> bool:
