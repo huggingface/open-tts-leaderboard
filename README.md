@@ -8,7 +8,7 @@ The following datasets are used in the Open TTS Leaderboard:
 1. [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval) (`tts` config): `en` (English) and `zh` (Chinese).
 2. [CV3 Eval](https://github.com/QwenAudio/CV3-Eval): `en`, `zh`, `fr` (French), `es` (Spanish), `ja` (Japanese), `ko` (Korean), `it` (Italian), `de` (German), and `ru` (Russian) (`zero_shot` config, 500 samples per language).
 3. [MiniMax Multilingual](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) (`tts` config): 100 samples x 24 languages. (Thai is scored with CER; Ukrainian is not supported by ASR)
-4. [Neyshekar](https://huggingface.co/datasets/shekar-ai/Neyshekar) Persian (`fa`, opt-in): `tts/fa` is prepared from its predefined test split; `tts_validation/fa` is reserved for development. See [Persian evaluation setup and scoring](docs/persian.md).
+4. [Neyshekar](https://huggingface.co/datasets/shekar-ai/Neyshekar) (`tts` config): `fa` (Persian), from its predefined test split (2,098 samples), scored with CER. A `tts_validation` config, from its validation split, is reserved for development. See the [dataset card](https://huggingface.co/datasets/hf-audio/neyshekar_eval) for how prompts and targets are paired.
 
 While human preference is the ultimate decider, **arenas cannot scale to keep up with the pace of TTS releases**. To this end, we use objective metrics to evaluate models on complementary aspects of performance:
 
@@ -78,9 +78,7 @@ Keep the repo names (`seed_tts_eval`, `cv3_eval`) as above, so that `DATASET_NAM
 
 The [MiniMax](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) test set is CC BY-SA 4.0, so it is redistributed publicly as [hf-audio/minimax_eval](https://huggingface.co/datasets/hf-audio/minimax_eval) and jobs use it by default (`MINIMAX_EVAL_PATH`); no copy of your own is needed.
 
-For Persian, [prepare Neyshekar](docs/persian.md) with `scripts/prepare_neyshekar_eval.py`.
-It is CC0 and can be copied publicly. Set `NEYSHEKAR_EVAL_PATH=YOUR_USERNAME/neyshekar_eval`
-to opt in with the OmniVoice backend. No official reformatted Hub copy is assumed.
+Likewise, [Neyshekar](https://huggingface.co/datasets/shekar-ai/Neyshekar) (Persian) is CC0 1.0, so it is redistributed publicly as [hf-audio/neyshekar_eval](https://huggingface.co/datasets/hf-audio/neyshekar_eval) and jobs use it by default (`NEYSHEKAR_EVAL_PATH`).
 
 
 #### 4. Smoke test
@@ -151,7 +149,7 @@ flowchart LR
 4. **UTMOS** (`utmos`, `UTMOS_LANGS` only): [transformers/score_utmos.py](transformers/score_utmos.py) predicts a MOS for each wav with UTMOS22 strong.
 5. **KOMOS** (`komos`, optional, Korean only): [transformers/score_komos.py](transformers/score_komos.py) scores Korean audio with `komos==0.0.2` and a pinned checkpoint in an isolated environment.
 6. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
-   - **WER** after text normalization (CER for `zh`, `ja`, `ko`)
+   - **WER** after text normalization (CER for `zh`, `ja`, `ko`, `th`, `fa`)
    - **RTFx**: total audio duration divided by total generation time, measured in stage 1
    - **SIM**: mean speaker similarity, for voice cloning only
    - **UTMOS**: mean predicted MOS

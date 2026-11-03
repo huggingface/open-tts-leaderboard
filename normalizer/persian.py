@@ -18,10 +18,15 @@ _VOCALIZATION = re.compile("[\u0610-\u061a\u064b-\u0652\u0656-\u065f\u0670\u06d6
 class PersianTextNormalizer:
     """Use WER with Persian spelling conventions and the shared compound-boundary policy.
 
-    ZWNJ becomes a space; joined vs split compounds are handled by score_results, as for
-    other multilingual WER languages. Do not stem or equate colloquial/formal words.
+    ZWNJ becomes a space; Persian is scored per character with spaces removed (CHAR_LANGUAGES
+    in eval_utils), so joined vs split spellings never count as errors. Do not stem or equate colloquial/formal words.
     Numeric digit scripts are folded and integers expanded with num2words' Persian rules.
     Decimal/group separators are handled before punctuation, so ۱۲٫۵ is not read as ۱۲۵.
+
+    This is a fixed notation policy, not a general Persian verbalizer: dates, phone numbers,
+    digit-by-digit readings, percentages, currencies and alternative decimal readings are not
+    reconciled, and numbers of 10**15 or more stay numeric. A TTS that reads these correctly
+    can still be penalized, so keep this in mind when interpreting Persian WER.
     """
 
     def __call__(self, text: str) -> str:

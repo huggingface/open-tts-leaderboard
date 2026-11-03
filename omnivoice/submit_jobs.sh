@@ -74,12 +74,8 @@ DATASET_CONFIGS=(
     "tts id id ${MINIMAX_EVAL_PATH}"
     "tts th th ${MINIMAX_EVAL_PATH}"
     "tts vi vi ${MINIMAX_EVAL_PATH}"
+    "tts fa fa ${NEYSHEKAR_EVAL_PATH}"
 )
-
-# Persian: opt in with a prepared Neyshekar repo; validation is development-only.
-if [[ -n "${NEYSHEKAR_EVAL_PATH}" ]]; then
-    DATASET_CONFIGS+=("tts fa fa ${NEYSHEKAR_EVAL_PATH}")
-fi
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
 MODEL_CONFIGS=(

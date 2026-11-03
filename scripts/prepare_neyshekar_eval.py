@@ -4,8 +4,12 @@ Only the predefined test/validation splits are downloaded (never train). Test be
 `tts/fa`; validation becomes `tts_validation/fa`, reserved for development. Pair clips
 within each split because the source splits are speaker-disjoint.
 
+Neyshekar is CC0 1.0, so everyone uses the one public copy at hf-audio/neyshekar_eval (the default
+destination), as with hf-audio/minimax_eval. The dataset card credits and cites the source.
+
 Examples:
     python scripts/prepare_neyshekar_eval.py --dry-run --output-dir /tmp/neyshekar_eval
+    python scripts/prepare_neyshekar_eval.py                     # -> hf-audio/neyshekar_eval
     python scripts/prepare_neyshekar_eval.py YOUR_USERNAME/neyshekar_eval
 """
 
@@ -26,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from normalizer.persian import PersianTextNormalizer  # noqa: E402
 
 
+DEFAULT_REPO_ID = "hf-audio/neyshekar_eval"
 SOURCE_REPO_ID = "shekar-ai/Neyshekar"
 # V6.0: 2,149 test and 1,886 validation clips, with stable speaker IDs.
 SOURCE_REVISION = "30696ada746a66bb3047c984744b5ecfd60fe4e9"
@@ -177,20 +182,35 @@ The SHA-256 covers ordered `[target_id, prompt_id]` pairs, encoded as compact JS
 ```json
 {json.dumps(reports, ensure_ascii=False, indent=2)}
 ```
+
+## Citation
+
+All credit for the recordings and transcripts goes to the Neyshekar authors. If you use this
+evaluation set, please cite the source corpus:
+
+```bibtex
+@article{{amirivojdan2026neyshekar,
+  title={{Neyshekar: An Open Persian Read-Speech Corpus for Automatic Speech Recognition}},
+  author={{Amirivojdan, Ahmad and Nadiri, Farzad and Alizadeh, Abolfazl and Yaraghi, Shaghayegh}},
+  journal={{arXiv preprint arXiv:2609.14542}},
+  year={{2026}},
+  doi={{10.48550/arXiv.2609.14542}},
+  url={{https://arxiv.org/abs/2609.14542}}
+}}
+```
 """
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("repo_id", nargs="?", help="HF destination, e.g. YOUR_USERNAME/neyshekar_eval")
+    parser.add_argument("repo_id", nargs="?", default=DEFAULT_REPO_ID,
+                        help=f"HF dataset id to push to (default: {DEFAULT_REPO_ID}).")
     parser.add_argument("--revision", default=SOURCE_REVISION, help="Source revision (default: pinned V6.0 commit)")
     parser.add_argument("--splits", nargs="+", choices=list(CONFIGS), default=list(CONFIGS))
     parser.add_argument("--dry-run", action="store_true", help="Prepare and validate without uploading")
     parser.add_argument("--output-dir", type=Path, help="Also save datasets, card and provenance locally")
     parser.add_argument("--private", action="store_true", help="Create a private destination (default: public)")
     args = parser.parse_args()
-    if not args.dry_run and not args.repo_id:
-        parser.error("repo_id is required unless --dry-run is passed")
     # load_dataset(repo, split=...) can still prepare/download every split. Restrict
     # the actual source files so the 10 GB training set is never downloaded.
     revision = HfApi().dataset_info(SOURCE_REPO_ID, revision=args.revision).sha
