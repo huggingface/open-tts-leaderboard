@@ -15,15 +15,23 @@ supports_language() { [[ "$1" == "vi" ]]; }
 
 # ── Stage 1: TTS generation (batched on GPU) ─────────────────────────────────
 generate_stage() {
-    local _ BATCH_SIZE
+    local _ BATCH_SIZE MODE="v3turbo" ORT_SETUP=""
     read -r _ BATCH_SIZE <<< "${MODEL_CFG}"
+    # v3 Nano is ONNX: swap the image's CPU onnxruntime for the GPU build so it runs on the CUDA EP
+    # (1.23.x is the last line built for CUDA 12 + cuDNN 9, matching the image's torch 2.8 cu128).
+    if [[ "${MODEL_ID}" == *-Nano ]]; then
+        MODE="v3nano"
+        ORT_SETUP="pip uninstall -y -q onnxruntime && pip install -q --no-cache-dir 'onnxruntime-gpu==1.23.2' &&"
+    fi
     hf jobs run \
         --flavor "${FLAVOR}" --timeout "${GEN_TIMEOUT:-8h}" --secrets HF_TOKEN ${NAMESPACE_ARG} \
         --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${TTS_IMAGE}" \
         bash -c "
             ${RUN_EVAL_INJECT}
+            ${ORT_SETUP}
             cd /app/vieneu && python run_eval.py \
                 --model_id=${MODEL_ID} \
+                --mode=${MODE} \
                 --batch_size=${BATCH_SIZE:-32} \
                 --dataset_path=${DATASET_PATH} \
                 --dataset=${DATASET} \
@@ -42,7 +50,10 @@ DATASET_CONFIGS=(
 )
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
-MODEL_CONFIGS=("pnnbao-ump/VieNeu-TTS-v3-Turbo 32")
+MODEL_CONFIGS=(
+    "pnnbao-ump/VieNeu-TTS-v3-Turbo 32"
+    "pnnbao-ump/VieNeu-TTS-v3-Nano 32"
+)
 [[ $# -gt 0 ]] && MODEL_CONFIGS=("$@")
 
 run_pipeline
