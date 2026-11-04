@@ -12,6 +12,10 @@ RUN_EVAL_INJECT="$(inject_run_eval)"
 # VOICE_CLONE=true: zero-shot voice cloning + SIM; false (default) = auto-voice.
 SUPPORTS_VOICE_CLONE=true
 
+# Vietnamese fine-tunes of OmniVoice (same architecture and loader): score them on Vietnamese only.
+VI_FINETUNES=" kjanh/KhanhTTS-OmniVoice splendor1811/omnivoice-vietnamese "
+supports_language() { [[ "${VI_FINETUNES}" != *" ${MODEL_ID} "* || "$1" == "vi" ]]; }
+
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id batch_size". ──
 generate_stage() {
     local _ BATCH_SIZE
@@ -79,6 +83,8 @@ DATASET_CONFIGS=(
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
 MODEL_CONFIGS=(
     "k2-fsa/OmniVoice 32"
+    "kjanh/KhanhTTS-OmniVoice 32"
+    "splendor1811/omnivoice-vietnamese 32"
 )
 [[ $# -gt 0 ]] && MODEL_CONFIGS=("$@")
 
