@@ -212,6 +212,8 @@ TTFA_TARGETS=(
     # --server_pid makes a dead server fail the wait immediately.
     "voxtral-tts|voxtral-tts|bezzam/evals-voxtral|mistralai/Voxtral-4B-TTS-2603|--base_url=http://localhost:${VLLM_PORT} --server_pid=\${SERVER_PID}"
     "higgs|higgs|bezzam/evals-higgs|bosonai/higgs-tts-3-4b|--host=127.0.0.1 --port=${SGLANG_PORT}"
+    # Streams one chunk per passage; CUDA runs the WebGPU bundle, TTFA_DEVICE=cpu the LiteRT bundle (both in the image).
+    "scyllasband|scyllasband|${SCYLLASBAND_SPACE:-spybyscript/evals-scyllasband}|spybyscript/scyllasband|"
 )
 if ${PHONON_SELECTED}; then
     TTFA_TARGETS+=(
@@ -221,7 +223,7 @@ if ${PHONON_SELECTED}; then
 fi
 
 # Backends whose run_eval.py has no --voice_clone flag at all; passing one would be an error.
-NO_CLONE_FLAG="inflect-nano inflect-v2 kokoro lfm2-audio lfm3-audio magpie-tts paradee phonon photon qwen3tts qwen3tts-fast supertonic vibevoice_realtime voxtral-tts"
+NO_CLONE_FLAG="inflect-nano inflect-v2 kokoro lfm2-audio lfm3-audio magpie-tts paradee phonon photon qwen3tts qwen3tts-fast scyllasband supertonic vibevoice_realtime voxtral-tts"
 
 # run_eval.py writes to its own output roots (outside Git, mode 0700) and names the sidecar itself,
 # so Phonon skips the generic run/rename/copy below; `preamble` is submit_one's CPU thread cap.
