@@ -12,6 +12,10 @@ The model has two fixed voices (`female`, `male`) and no voice cloning, so only 
 rows are processed serially (batch size 1). The raw dataset text goes straight to the model (its bundled
 text normaliser spells out digits etc.); the leaderboard normaliser is applied at scoring time only.
 
+Weights are CC-BY-4.0 (trained on AI4Bharat Rasa Hindi only); code and Vocos vocoder are MIT.
+Known limitation: the front-end is Devanagari-only, so Latin tokens in the input (e.g. "5G", "3D" in
+MiniMax Hindi) are dropped.
+
 Stage 2 (`transformers/transcribe.py`) fills `pred_text` with Qwen3-ASR; stage 4
 (`normalizer.eval_utils.score_results`, run locally) computes WER + RTFx. Fixed voice, so no SIM stage.
 """

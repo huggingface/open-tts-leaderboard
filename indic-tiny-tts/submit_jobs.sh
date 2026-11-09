@@ -9,13 +9,12 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common.sh"
 
 # ── Backend config ───────────────────────────────────────────────────────────
-# Stage-1 environment. Default: the plain public PyTorch image below, with the few eval-loop deps
-# pip-installed at job start (indic_tiny_tts itself is NOT pip-installed: run_eval.py downloads the
-# pinned model repo and imports the package it ships). If a Docker Space was built from this folder's
-# Dockerfile, set TTS_SPACE=<user>/<space> to use it instead (the pip step is then skipped).
-TTS_SPACE="${TTS_SPACE:-}"
-GEN_BASE_IMAGE="${GEN_BASE_IMAGE:-pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime}"
-GEN_PIP_DEPS="${GEN_PIP_DEPS:-datasets soundfile tqdm huggingface_hub safetensors numpy}"   # keep in sync with the Dockerfile
+# Stage-1 environment: no Docker Space needed. The job runs on the public PyTorch image below and
+# pip-installs the few eval-loop deps at job start (seconds). indic_tiny_tts itself is NOT pip-installed:
+# run_eval.py downloads the pinned model repo and imports the package it ships (its deps: torch, numpy,
+# safetensors, huggingface_hub).
+GEN_IMAGE="${GEN_IMAGE:-pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime}"
+GEN_PIP_DEPS="${GEN_PIP_DEPS:-datasets soundfile tqdm huggingface_hub safetensors numpy}"
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability: don't override.
 GEN_TIMEOUT="${GEN_TIMEOUT:-30m}"                # 100 sentences of a 22M model take minutes; a hang must not burn H200 hours
 DEFAULT_STAGES="generate transcribe"             # fixed voice, Hindi: no SIM (no cloning), no UTMOS (English only)
@@ -29,7 +28,6 @@ if [[ ! "${MODEL_REVISION}" =~ ^[0-9a-f]{40}$ ]] && [[ "${ALLOW_UNPINNED_REVISIO
     echo "indic-tiny-tts: set MODEL_REVISION to the full 40-char commit sha of the model repo (or ALLOW_UNPINNED_REVISION=1 for a throwaway run)." >&2
     exit 1
 fi
-[[ -n "${MODEL_REVISION}" ]] || MODEL_REVISION="main"
 # Built-in voice: 'female' or 'male'. One voice per run, one leaderboard row.
 VOICE="${VOICE:-male}"
 echo "indic-tiny-tts: revision=${MODEL_REVISION} voice=${VOICE} results bucket=${RESULTS_BUCKET}"
@@ -39,19 +37,12 @@ supports_language() { [[ "$1" == "hi" ]]; }
 
 # ── Stage 1: TTS generation (the model synthesizes one sample at a time: no batch size) ──
 generate_stage() {
-    local IMAGE PIP_STEP=""
-    if [[ -n "${TTS_SPACE}" ]]; then
-        IMAGE="${TTS_IMAGE}"
-    else
-        IMAGE="${GEN_BASE_IMAGE}"
-        PIP_STEP="pip install --no-cache-dir ${GEN_PIP_DEPS} &&"
-    fi
     hf jobs run \
         --flavor "${FLAVOR}" --timeout "${GEN_TIMEOUT}" --secrets HF_TOKEN ${NAMESPACE_ARG} \
-        --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${IMAGE}" \
+        --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${GEN_IMAGE}" \
         bash -c "
             ${RUN_EVAL_INJECT}
-            ${PIP_STEP}
+            pip install --no-cache-dir -q ${GEN_PIP_DEPS} &&
             cd /app/indic-tiny-tts && python run_eval.py \
                 --model_id=${MODEL_ID} \
                 --revision=${MODEL_REVISION} \

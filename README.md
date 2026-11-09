@@ -152,7 +152,7 @@ flowchart LR
    - **UTMOS**: mean predicted MOS
    - **KOMOS**: Korean-only mean over successfully scored files, with coverage and model provenance; no composite average
 
-The stages are separate jobs because the TTS, ASR and speaker-similarity models have conflicting dependencies: stage 1 uses the backend's own Docker Space image, and stages 2-4 share [bezzam/evals](https://huggingface.co/spaces/bezzam/evals). The optional KOMOS job uses that image to create a fresh Python virtual environment and install `komos==0.0.2` (Python >=3.10, PyTorch 2.8.0 (CUDA 12.8 wheels, matching the shared image) and Transformers >=5.14.1,<5.17), leaving the other stages' dependencies unchanged. The job bootstraps `uv` to create the environment without requiring Ubuntu's optional `python3-venv` package.
+The stages are separate jobs because the TTS, ASR and speaker-similarity models have conflicting dependencies: stage 1 uses the backend's own image (usually a Docker Space, or a public registry image such as `pytorch/pytorch`), and stages 2-4 share [bezzam/evals](https://huggingface.co/spaces/bezzam/evals).
 
 | Stage | Flavor | Hardware |
 |---|---|---|
@@ -231,9 +231,11 @@ Seamless is fast and batched, so most of each of its generation jobs (~1 min per
 > - make a new folder to evaluate the new model, linking it to a documentation page with usage
 > - use batch inference if possible, with max batch size of 32
 > - implement the TTFA probe if the model supports streaming
-> - (if you give it permission to your HF account) make a Docker Space to run the model via HF Jobs, taking inspiration from one of the existing configurations [here](https://huggingface.co/collections/bezzam/tts-eval)
+> - (if you give it permission to your HF account) make a Docker Space to run the model via HF Jobs, taking inspiration from one of the existing configurations [here](https://huggingface.co/collections/bezzam/tts-eval), or skip the Space if a public registry image plus a few `pip install`s is enough
 
 1. **Create the environment image.** Create a **public** [Docker Space](https://huggingface.co/new-space?sdk=docker) (HF Jobs can't pull private ones), e.g. `YOUR_USERNAME/evals-<backend>`, whose `Dockerfile` installs the model's dependencies. It only needs the Dockerfile; the eval scripts are injected at runtime. See the existing Spaces [here](https://huggingface.co/collections/bezzam/tts-eval). Models that run with `transformers` can instead be added to the [transformers/](transformers/) backend.
+
+   **No Space needed for light dependencies.** If an existing public image on a Docker registry (e.g. `pytorch/pytorch` on Docker Hub) already has the heavy dependencies, skip the Space: pass that image to `hf jobs run` and `pip install` the remaining packages at the start of the job command. [indic-tiny-tts/submit_jobs.sh](indic-tiny-tts/submit_jobs.sh) is an example (`GEN_IMAGE` + `GEN_PIP_DEPS`). Use a Space when the install is slow or fragile (compiled extensions, system packages, pinned forks), so every job doesn't redo it.
 2. **Write `<backend>/run_eval.py`**, which evaluates one dataset split. The shared helpers in [scripts/run_eval_utils.py](scripts/run_eval_utils.py) handle the parts common to every backend, so the script mostly contains the model-specific code. It should:
    - synthesize the `text` column, cloning from `prompt_audio` / `prompt_text` when `--voice_clone` is set (off by default)
    - time generation only, after `--warmup_steps` untimed warm-up batches (default 2), so RTFx is fair
@@ -242,7 +244,7 @@ Seamless is fast and batched, so most of each of its generation jobs (~1 min per
 
    [kokoro/run_eval.py](kokoro/run_eval.py) is a short fixed-voice example, and [voxcpm2/run_eval.py](voxcpm2/run_eval.py) is a voice-cloning example.
 3. **Write `<backend>/submit_jobs.sh`**, which sources [scripts/tts_jobs_common.sh](scripts/tts_jobs_common.sh) and then:
-   - sets `TTS_SPACE` (your Docker Space) and `RUN_EVAL_INJECT="$(inject_run_eval)"`
+   - sets `TTS_SPACE` (your Docker Space), or its own registry image if it doesn't use a Space, and `RUN_EVAL_INJECT="$(inject_run_eval)"`
    - defines `generate_stage()`, the `hf jobs run` command for stage 1
    - sets `SUPPORTS_VOICE_CLONE=true` if the model can clone, and optionally defines `supports_language()` to skip splits the model can't synthesize
    - sets `DATASET_CONFIGS` and `MODEL_CONFIGS`, then calls `run_pipeline`
