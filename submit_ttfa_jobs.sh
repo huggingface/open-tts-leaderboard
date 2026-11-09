@@ -208,6 +208,12 @@ TTFA_TARGETS=(
     "seamless-m4t-v2|transformers|bezzam/evals|facebook/seamless-m4t-v2-large|--language=${TTFA_LANG}"
     "vibevoice_realtime|vibevoice_realtime|bezzam/evals-vibevoice|microsoft/VibeVoice-Realtime-0.5B|"
     "voxcpm2|voxcpm2|bezzam/evals-voxcpm|openbmb/VoxCPM2|"
+    # numpy CPU only (run_eval.py refuses a GPU device):  TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh woof
+    # --threads=0 keeps the CPU preamble's OMP/OPENBLAS cap (the cgroup quota) instead of 1 thread.
+    # Timestamps the first sentence/clause piece of Woof's own split-and-generate loop.
+    "woof|woof|bezzam/evals-woof|ConwayResearch/Underdog-Woof|--voice=juno --threads=0"
+    # Second voice: sidecar suffixed _mira (publish with --variant _mira).
+    "woof-mira|woof|bezzam/evals-woof|ConwayResearch/Underdog-Woof|--voice=mira --threads=0"
     # HTTP CLIENTS of an inference server the job starts itself (see the preamble in submit_one);
     # --server_pid makes a dead server fail the wait immediately.
     "voxtral-tts|voxtral-tts|bezzam/evals-voxtral|mistralai/Voxtral-4B-TTS-2603|--base_url=http://localhost:${VLLM_PORT} --server_pid=\${SERVER_PID}"
@@ -221,7 +227,7 @@ if ${PHONON_SELECTED}; then
 fi
 
 # Backends whose run_eval.py has no --voice_clone flag at all; passing one would be an error.
-NO_CLONE_FLAG="inflect-nano inflect-v2 kokoro lfm2-audio lfm3-audio magpie-tts paradee phonon photon qwen3tts qwen3tts-fast supertonic vibevoice_realtime voxtral-tts"
+NO_CLONE_FLAG="inflect-nano inflect-v2 kokoro lfm2-audio lfm3-audio magpie-tts paradee phonon photon qwen3tts qwen3tts-fast supertonic vibevoice_realtime voxtral-tts woof"
 
 # run_eval.py writes to its own output roots (outside Git, mode 0700) and names the sidecar itself,
 # so Phonon skips the generic run/rename/copy below; `preamble` is submit_one's CPU thread cap.
