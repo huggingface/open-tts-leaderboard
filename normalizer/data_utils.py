@@ -2,6 +2,7 @@ import re
 
 import num2words
 from normalizer import EnglishTextNormalizer, BasicMultilingualTextNormalizer
+from normalizer.hindi import normalize_hi_numbers_after, normalize_hi_numbers_before
 
 
 class MultilingualNormalizer(BasicMultilingualTextNormalizer):
@@ -37,8 +38,12 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
     def __call__(self, s, lang=None):
         if lang == "vi":
             s = self._normalize_vi_numbers(s)
+        elif lang == "hi":
+            s = normalize_hi_numbers_before(s)
         s = super().__call__(s)
-        if lang is not None:
+        if lang == "hi":
+            s = normalize_hi_numbers_after(s)
+        elif lang is not None:
             s = self._normalize_numbers(s, lang)
         return s
 
