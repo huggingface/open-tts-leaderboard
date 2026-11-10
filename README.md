@@ -15,7 +15,7 @@ While human preference is the ultimate decider, **arenas cannot scale to keep up
 1. **Intelligibility**: word/character error rate (WER and CER) between the target text and the generated audio's transcript, using [Qwen3 ASR](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf) (top ranking open-source model on the [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard)).
 2. **Speed**: inverse real-time factor (RTFx) for batched offline inference on an H200 GPU, and time-to-first-audio (TTFA) for quantifying streaming batch size 1 latency on an A100 GPU and CPU.
 3. **Speaker similarity** by computing the cosine similarity (SIM) between [WavLM speaker embeddings](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval) of the generated audio and the reference clip. Note that not all models support voice cloning, so those models are omitted from this evaluation.
-4. **Naturalness**: predicted MOS (1-5) with [UTMOS22 strong](https://github.com/tarepan/SpeechMOS) (UTMOS). UTMOS22 is trained on English only, so it is reported for `en` only.
+4. **Naturalness**: predicted MOS (1-5) with [UTMOS22 strong](https://github.com/tarepan/SpeechMOS) (UTMOS). UTMOS22 is trained on English only, so it is reported for `en` only. An optional [KOMOS](https://github.com/upskyy/komos) pilot reports Korean predicted MOS for `ko`.
 
 By relying on objective metrics **evaluating a model drops from a couple weeks (for collecting votes) to a couple hours** ⚡
 
@@ -74,16 +74,12 @@ Unfortunately the licenses of [Seed TTS](https://github.com/BytedanceSpeech/seed
 # -- upload to your account on HF
 (tts_leaderboard) python scripts/prepare_cv3_eval.py YOUR_USERNAME/cv3_eval
 
-# minimax eval
-# -- download
-(tts_leaderboard) hf download MiniMaxAI/TTS-Multilingual-Test-Set --repo-type dataset --local-dir minimax_testset
-# -- upload to your account on HF
-(tts_leaderboard) python scripts/prepare_minimax_eval.py YOUR_USERNAME/minimax_eval
-
 # gradium eval
 (tts_leaderboard) python scripts/prepare_gradium_eval.py YOUR_USERNAME/gradium_eval
 ```
-Keep the repo names (`seed_tts_eval`, `cv3_eval`, `minimax_eval`, `gradium_eval`) as above, so that `DATASET_NAMESPACE=YOUR_USERNAME` points every job at your copies.
+Keep the repo names (`seed_tts_eval`, `cv3_eval`, `gradium_eval`) as above, so that `DATASET_NAMESPACE=YOUR_USERNAME` points every job at your copies.
+
+The [MiniMax](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) test set is CC BY-SA 4.0, so it is redistributed publicly as [hf-audio/minimax_eval](https://huggingface.co/datasets/hf-audio/minimax_eval) and jobs use it by default (`MINIMAX_EVAL_PATH`); no copy of your own is needed.
 
 
 #### 4. Smoke test
@@ -116,7 +112,7 @@ facebook/seamless-m4t-v2-large: RTFx = 21.19
 
 Each model family has its own folder (e.g. [kokoro/](kokoro/), [voxcpm2/](voxcpm2/), [transformers/](transformers/)) with a `submit_jobs.sh` that is run **locally** and submits HF Jobs to HF servers. The orchestration shared by all backends lives in [scripts/tts_jobs_common.sh](scripts/tts_jobs_common.sh).
 
-For each (model, dataset split) pair, the pipeline runs four sequential HF Jobs (three if the model is not voice cloning), followed by scoring on your machine. The splits of a model run in parallel; models run one after another.
+For each (model, dataset split) pair, the pipeline runs four sequential HF Jobs (three if the model is not voice cloning), followed by scoring on your machine. An opt-in `komos` job can also score Korean audio. The splits of a model run in parallel; models run one after another.
 
 ```mermaid
 flowchart LR
@@ -130,6 +126,7 @@ flowchart LR
         asr["<b>2. Transcribe</b><br/>Qwen3-ASR · L4"]
         sim["<b>3. Speaker similarity</b><br/>WavLM-SV · L4"]
         utmos["<b>4. UTMOS</b><br/>UTMOS22 · L4"]
+        komos["<b>Optional: KOMOS</b><br/>Korean MOS · L4"]
     end
 
     ds[("Private datasets<br/>seed_tts_eval / cv3_eval")]
@@ -137,11 +134,13 @@ flowchart LR
 
     submit --> gen --> asr -->|voice cloning only| sim --> utmos
     asr --> utmos
+    asr -->|optional, Korean only| komos
     ds --> gen
     gen -->|wavs + manifest| bucket
     asr <-->|pred_text| bucket
     sim <-->|sim| bucket
     utmos -->|UTMOS_*.json| bucket
+    komos -->|KOMOS_*.json| bucket
     bucket -->|manifests only| score
 ```
 
@@ -149,13 +148,15 @@ flowchart LR
 2. **Transcribe** (`transcribe`): [transformers/transcribe.py](transformers/transcribe.py) transcribes the wavs with [Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf), using the split's language as a hint.
 3. **Speaker similarity** (`sim`, voice cloning only): [transformers/score_similarity.py](transformers/score_similarity.py) compares each generated clip with its reference prompt, using the [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval#metrics) speaker-verification model (WavLM-large + ECAPA-TDNN, mirrored [here](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval)).
 4. **UTMOS** (`utmos`, `UTMOS_LANGS` only): [transformers/score_utmos.py](transformers/score_utmos.py) predicts a MOS for each wav with UTMOS22 strong.
-5. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
+5. **KOMOS** (`komos`, optional, Korean only): [transformers/score_komos.py](transformers/score_komos.py) scores Korean audio with `komos==0.0.2` and a pinned checkpoint in an isolated environment.
+6. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
    - **WER** after text normalization (CER for `zh`, `ja`, `ko`)
    - **RTFx**: total audio duration divided by total generation time, measured in stage 1
    - **SIM**: mean speaker similarity, for voice cloning only
    - **UTMOS**: mean predicted MOS
+   - **KOMOS**: Korean-only mean over successfully scored files, with coverage and model provenance; no composite average
 
-The stages are separate jobs because the TTS, ASR and speaker-similarity models have conflicting dependencies: stage 1 uses the backend's own Docker Space image, and stages 2-4 share [bezzam/evals](https://huggingface.co/spaces/bezzam/evals).
+The stages are separate jobs because the TTS, ASR and speaker-similarity models have conflicting dependencies: stage 1 uses the backend's own image (usually a Docker Space, or a public registry image such as `pytorch/pytorch`), and stages 2-4 share [bezzam/evals](https://huggingface.co/spaces/bezzam/evals).
 
 | Stage | Flavor | Hardware |
 |---|---|---|
@@ -163,6 +164,7 @@ The stages are separate jobs because the TTS, ASR and speaker-similarity models 
 | 2. Transcribe | `l4x1` | 1x Nvidia L4 (24 GB) |
 | 3. Speaker similarity | `l4x1` | 1x Nvidia L4 (24 GB) |
 | 4. UTMOS | `l4x1` | 1x Nvidia L4 (24 GB) |
+| Optional KOMOS | `l4x1` | 1x Nvidia L4 (24 GB); CPU supported via the local CLI |
 
 RTFx is measured in stage 1, so every model is generated on the **same** flavor (`h200`); don't override `FLAVOR` in a backend. See the [HF Jobs documentation](https://huggingface.co/docs/huggingface_hub/main/en/guides/jobs#select-the-hardware) for pricing.
 
@@ -172,13 +174,14 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATASET_NAMESPACE` | `hf-audio` | Namespace holding your private `seed_tts_eval` / `cv3_eval` / `minimax_eval` / `gradium_eval` copies |
+| `DATASET_NAMESPACE` | `hf-audio` | Namespace holding your private `seed_tts_eval` / `cv3_eval` / `gradium_eval` copies |
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
 | `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |
-| `STAGES` | `generate transcribe sim utmos` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs |
+| `ONLY_DATASETS` | (all) | Only run the configured splits of these dataset repos (name after the namespace), e.g. `"minimax_eval"` |
+| `STAGES` | `generate transcribe sim utmos` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs. Add the optional `komos` stage to score Korean (`ko`) outputs |
 | `VOICE_CLONE` | `false` | Clone the prompt speaker (backends that support both modes) |
-| `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. **Set `SIM_OVERWRITE=true` after regenerating audio**, otherwise old SIM scores are carried over |
+| `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. SIM is always recomputed when `generate` runs; set `SIM_OVERWRITE=true` only to re-score existing audio with `STAGES="sim"` |
 | `ORG_NAME` | (none) | Run the jobs under an organization's namespace |
 
 Examples:
@@ -230,11 +233,13 @@ Seamless is fast and batched, so most of each of its generation jobs (~1 min per
 > [!TIP]
 > **Let your coding agent do the heavy lifting!** Ask it to:
 > - make a new folder to evaluate the new model, linking it to a documentation page with usage
-> - use batch inference if possible
+> - use batch inference if possible, with max batch size of 32
 > - implement the TTFA probe if the model supports streaming
-> - (if you give it permission to your HF account) make a Docker Space to run the model via HF Jobs, taking inspiration from one of the existing configurations [here](https://huggingface.co/collections/bezzam/tts-eval)
+> - (if you give it permission to your HF account) make a Docker Space to run the model via HF Jobs, taking inspiration from one of the existing configurations [here](https://huggingface.co/collections/bezzam/tts-eval), or skip the Space if a public registry image plus a few `pip install`s is enough
 
 1. **Create the environment image.** Create a **public** [Docker Space](https://huggingface.co/new-space?sdk=docker) (HF Jobs can't pull private ones), e.g. `YOUR_USERNAME/evals-<backend>`, whose `Dockerfile` installs the model's dependencies. It only needs the Dockerfile; the eval scripts are injected at runtime. See the existing Spaces [here](https://huggingface.co/collections/bezzam/tts-eval). Models that run with `transformers` can instead be added to the [transformers/](transformers/) backend.
+
+   **No Space needed for light dependencies.** If an existing public image on a Docker registry (e.g. `pytorch/pytorch` on Docker Hub) already has the heavy dependencies, skip the Space: pass that image to `hf jobs run` and `pip install` the remaining packages at the start of the job command. [indic-tiny-tts/submit_jobs.sh](indic-tiny-tts/submit_jobs.sh) is an example (`GEN_IMAGE` + `GEN_PIP_DEPS`). Use a Space when the install is slow or fragile (compiled extensions, system packages, pinned forks), so every job doesn't redo it.
 2. **Write `<backend>/run_eval.py`**, which evaluates one dataset split. The shared helpers in [scripts/run_eval_utils.py](scripts/run_eval_utils.py) handle the parts common to every backend, so the script mostly contains the model-specific code. It should:
    - synthesize the `text` column, cloning from `prompt_audio` / `prompt_text` when `--voice_clone` is set (off by default)
    - time generation only, after `--warmup_steps` untimed warm-up batches (default 2), so RTFx is fair
@@ -243,7 +248,7 @@ Seamless is fast and batched, so most of each of its generation jobs (~1 min per
 
    [kokoro/run_eval.py](kokoro/run_eval.py) is a short fixed-voice example, and [voxcpm2/run_eval.py](voxcpm2/run_eval.py) is a voice-cloning example.
 3. **Write `<backend>/submit_jobs.sh`**, which sources [scripts/tts_jobs_common.sh](scripts/tts_jobs_common.sh) and then:
-   - sets `TTS_SPACE` (your Docker Space) and `RUN_EVAL_INJECT="$(inject_run_eval)"`
+   - sets `TTS_SPACE` (your Docker Space), or its own registry image if it doesn't use a Space, and `RUN_EVAL_INJECT="$(inject_run_eval)"`
    - defines `generate_stage()`, the `hf jobs run` command for stage 1
    - sets `SUPPORTS_VOICE_CLONE=true` if the model can clone, and optionally defines `supports_language()` to skip splits the model can't synthesize
    - sets `DATASET_CONFIGS` and `MODEL_CONFIGS`, then calls `run_pipeline`

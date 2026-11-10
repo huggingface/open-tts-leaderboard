@@ -2,6 +2,7 @@ import re
 
 import num2words
 from normalizer import EnglishTextNormalizer, BasicMultilingualTextNormalizer
+from normalizer.hindi import normalize_hi_numbers_after, normalize_hi_numbers_before
 
 
 class MultilingualNormalizer(BasicMultilingualTextNormalizer):
@@ -21,9 +22,28 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
                 return m.group()
         return re.sub(r"\d+", _replace, text)
 
+    @staticmethod
+    def _normalize_vi_numbers(text):
+        # Vietnamese conventions, applied before punctuation is stripped: "." groups thousands
+        # ("10.000"), "," is the decimal separator ("3,5" -> "3 phẩy 5", leading zeros read as
+        # "không"), and "%" is read "phần trăm". Otherwise "3,5%" would become "ba năm".
+        text = re.sub(r"(?<=\d)\.(?=\d{3}\b)", "", text)
+        def _decimal(m):
+            frac = m.group(2)
+            zeros = len(frac) - len(frac.lstrip("0"))
+            return " ".join([m.group(1), "phẩy"] + ["không"] * zeros + ([frac[zeros:]] if frac[zeros:] else []))
+        text = re.sub(r"(\d+),(\d+)", _decimal, text)
+        return text.replace("%", " phần trăm")
+
     def __call__(self, s, lang=None):
+        if lang == "vi":
+            s = self._normalize_vi_numbers(s)
+        elif lang == "hi":
+            s = normalize_hi_numbers_before(s)
         s = super().__call__(s)
-        if lang is not None:
+        if lang == "hi":
+            s = normalize_hi_numbers_after(s)
+        elif lang is not None:
             s = self._normalize_numbers(s, lang)
         return s
 

@@ -15,9 +15,13 @@ Layout (24 languages, one female and one male prompt speaker each):
 
 Everything goes under the `tts` config; each language is a split (named by its language code).
 
+Unlike the Seed-TTS-Eval and CV3-Eval copies, this one is pushed **public** by default: the test set
+is CC BY-SA 4.0, which allows redistribution with attribution under the same license. The script
+writes a dataset card that does both (see CARD_TEXT).
+
 Usage:
 ```
-python scripts/prepare_minimax_eval.py <hf_dataset_id> [--data-dir minimax_testset] [--langs ar yue ...]
+python scripts/prepare_minimax_eval.py [hf_dataset_id] [--data-dir minimax_testset] [--langs ar yue ...] [--private]
 ```
 """
 
@@ -25,9 +29,43 @@ import argparse
 from pathlib import Path
 
 from datasets import Audio, Dataset, Features, Value
+from huggingface_hub import DatasetCard
 
 
 CONFIG = "tts"
+DEFAULT_REPO_ID = "hf-audio/minimax_eval"
+SOURCE_REPO_ID = "MiniMaxAI/TTS-Multilingual-Test-Set"
+LICENSE = "cc-by-sa-4.0"
+# Top of the dataset card: the attribution, license and change notice CC BY-SA 4.0 requires.
+CARD_TEXT = f"""\
+# MiniMax TTS Multilingual Test Set (Open TTS Leaderboard copy)
+
+This is a reformatted copy of [{SOURCE_REPO_ID}](https://huggingface.co/datasets/{SOURCE_REPO_ID}), created by
+MiniMax and licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). This copy is
+distributed under the same license.
+
+**Changes:** reorganized into a single `tts` config with one split per language (named by language code), each row
+pairing a test sentence with its speaker's prompt clip and that clip's transcript, by
+[`scripts/prepare_minimax_eval.py`](https://github.com/huggingface/open-tts-leaderboard/blob/main/scripts/prepare_minimax_eval.py).
+The text and audio themselves are unchanged. Per the original card, the prompt clips come from Mozilla Common Voice.
+
+Used by the [Open TTS Leaderboard](https://github.com/huggingface/open-tts-leaderboard): 100 sentences in each of
+24 languages, synthesized in each prompt speaker's voice.
+
+## Citation
+
+```bibtex
+@misc{{minimax2025minimaxspeechintrinsiczeroshottexttospeech,
+      title={{MiniMax-Speech: Intrinsic Zero-Shot Text-to-Speech with a Learnable Speaker Encoder}},
+      author={{Bowen Zhang, Congchao Guo, Geng Yang, Hang Yu, Haozhe Zhang, Heidi Lei, Jialong Mai, Junjie Yan, Kaiyue Yang, Mingqi Yang, Peikai Huang, Ruiyang Jin, Sitan Jiang, Weihua Cheng, Yawei Li, Yichen Xiao, Yiying Zhou, Yongmao Zhang, Yuan Lu, Yucen He}},
+      year={{2025}},
+      eprint={{2505.07916}},
+      archivePrefix={{arXiv}},
+      primaryClass={{eess.AS}},
+      url={{https://arxiv.org/abs/2505.07916}},
+}}
+```
+"""
 # Language code (split name) -> language name used in the file layout
 LANGUAGES = {
     "ar": "arabic", "yue": "cantonese", "zh": "chinese", "cs": "czech", "nl": "dutch", "en": "english",
@@ -69,9 +107,26 @@ def build_dataset(records: list[dict]) -> Dataset:
     return Dataset.from_dict(columns, features=Features(feature_dict))
 
 
+def push_card(repo_id: str):
+    """Set the license and put CARD_TEXT at the top of the card. Runs after every split is pushed, since each
+    push_to_hub rewrites the card's metadata; the `configs` / `dataset_info` it wrote are kept."""
+    card = DatasetCard.load(repo_id, repo_type="dataset")
+    card.data.license = LICENSE
+    card.data.task_categories = ["text-to-speech"]
+    card.data.source_datasets = [SOURCE_REPO_ID]
+    card.text = CARD_TEXT
+    card.push_to_hub(repo_id, repo_type="dataset", commit_message="Add dataset card (CC BY-SA 4.0 attribution)")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("repo_id", help="HF dataset id to push to, e.g. 'username/minimax_eval'")
+    parser.add_argument(
+        "repo_id",
+        nargs="?",
+        default=DEFAULT_REPO_ID,
+        help=f"HF dataset id to push to (default: {DEFAULT_REPO_ID}).",
+    )
+    parser.add_argument("--private", action="store_true", help="Push a private copy (default: public).")
     parser.add_argument(
         "--data-dir",
         default="minimax_testset",
@@ -97,10 +152,12 @@ def main():
         print(f"  {len(dataset)} examples")
 
         print(f"Pushing config '{CONFIG}' split '{lang}' to {args.repo_id} ...")
-        
-        dataset.push_to_hub(args.repo_id, config_name=CONFIG, private=True, split=lang)
+        # `private` only applies when the repo is created; an existing repo keeps its visibility.
+        dataset.push_to_hub(args.repo_id, config_name=CONFIG, private=args.private, split=lang)
         print(f"  done ({CONFIG}/{lang}).")
 
+    print("Writing the dataset card ...")
+    push_card(args.repo_id)
     print(f"Uploaded to https://huggingface.co/datasets/{args.repo_id}")
 
 
