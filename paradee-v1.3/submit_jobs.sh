@@ -7,18 +7,10 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common
 # ── Backend config ───────────────────────────────────────────────────────────
 # Separate from paradee/ (v1.0, image bezzam/evals-paradee, which pins the 1.0 package): the 1.3 package
 # changed its API (eight voices, a voice argument, no REPO/REVISION constants), so 1.3 gets its own folder.
-# Stage-1 environment: no Docker Space needed. The job runs on the public PyTorch image below (Python 3.11,
-# CUDA 12.8, cuDNN 9; torch itself is unused) and pip-installs the paradee package pinned to the v1.3
-# release commit, its spaCy English model, and the eval-loop deps at job start. The CPU onnxruntime that
-# paradee pulls in is then swapped for onnxruntime-gpu 1.23 (CUDA 12.x builds; 1.24+ needs CUDA 13), whose
-# preload_dlls() (called in run_eval.py) loads cuDNN from the nvidia-cudnn-cu12 wheel. That wheel must be
-# UPGRADED (-U): the image's own cuDNN 9.7 fails in onnxruntime-gpu 1.23's cuDNN frontend on some convs.
-GEN_IMAGE="${GEN_IMAGE:-pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime}"
-PARADEE_COMMIT="af5ca1a17daad860d1aea60510d93d8dbd1d7b6f"   # tag v1.3 of github.com/sahilmahendrakar/paradee
-GEN_PIP_DEPS="${GEN_PIP_DEPS:-'paradee @ https://github.com/sahilmahendrakar/paradee/archive/${PARADEE_COMMIT}.zip' \
-datasets soundfile tqdm onnx \
-'en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl'}"
-GEN_GPU_DEPS="${GEN_GPU_DEPS:-onnxruntime-gpu==1.23.0 nvidia-cudnn-cu12}"
+# Stage-1 environment: no Docker Space needed. GEN_IMAGE (a public PyTorch image) and gen_setup (the
+# pip install at job start) live in job_image.sh, shared with submit_ttfa_jobs.sh so the TTFA probe
+# runs the same install.
+source "${BACKEND_DIR}/job_image.sh"
 GEN_TIMEOUT="${GEN_TIMEOUT:-2h}"                 # an 8M model on the largest split takes minutes; a hang must not burn H200 hours
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
 DEFAULT_STAGES="generate transcribe utmos"       # no SIM (fixed voice)
@@ -62,8 +54,7 @@ generate_stage() {
         --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${GEN_IMAGE}" \
         bash -c "
             ${RUN_EVAL_INJECT}
-            pip install --no-cache-dir -q ${GEN_PIP_DEPS} &&
-            pip uninstall -y -q onnxruntime && pip install --no-cache-dir -q -U ${GEN_GPU_DEPS} &&
+            $(gen_setup "${PARADEE_DEVICE}")
             cd /app/paradee-v1.3 && python run_eval.py \
                 --model_id=${MODEL_ID} \
                 --voice=${VOICE} \
@@ -82,9 +73,9 @@ generate_stage() {
 # ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
 DATASET_CONFIGS=(
     "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-bezzam/cv3_eval}"
+    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
+    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
     # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
     "tts en en ${MINIMAX_EVAL_PATH}"
     "tts fr fr ${MINIMAX_EVAL_PATH}"

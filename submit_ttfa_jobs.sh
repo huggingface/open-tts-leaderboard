@@ -119,6 +119,10 @@ TTFA_INJECT="$(inject_cmd_gz "${REPO_ROOT}/scripts/ttfa_probe.py" /app/scripts/t
 # client); selecting by model id runs every engine for it.
 # Extra flags mirror the default MODEL_CONFIGS entry of the backend's own submit_jobs.sh. Batch
 # sizes are absent: the probe forces batch 1.
+#
+# `space` (field 3) EMPTY = a backend with no Docker Space: <backend_dir>/job_image.sh (also sourced
+# by its submit_jobs.sh) gives the public registry image (GEN_IMAGE) and the pip install run at job
+# start (gen_setup <device>), so the probe measures the same install as the eval.
 TTFA_TARGETS=(
     "breeze-tts|breeze-tts|bezzam/evals-breeze|BreezeBlue/Breeze-TTS-2|--language=${TTFA_LANG} --fast_all"
     "chatterbox|chatterbox|bezzam/evals-chatterbox|ResembleAI/chatterbox|--language=${TTFA_LANG}"
@@ -154,6 +158,8 @@ TTFA_TARGETS=(
     "omnivoice|omnivoice|bezzam/evals-omnivoice|k2-fsa/OmniVoice|--language=${TTFA_LANG}"
     # ONNX Runtime: the CUDA EP on the GPU flavor; TTFA_DEVICE=cpu runs the package's own 1-thread CPU session.
     "paradee|paradee|bezzam/evals-paradee|sahilmahendrakar/Paradee-8M-v1.0|"
+    # No Space: public PyTorch image + pip install from paradee-v1.3/job_image.sh. English voice as in its eval.
+    "paradee-v1.3|paradee-v1.3||sahilmahendrakar/Paradee-8M-v1.3|--voice=af_heart"
     "pocket-tts|pocket-tts|bezzam/evals-pocket|kyutai/pocket-tts|--language=${TTFA_LANG}"
     "qwen3tts|qwen3tts|bezzam/evals-qwentts|Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice|--speaker=Aiden --mode=custom_voice --language=${TTFA_LANG}"
     # The same checkpoint under andimarafioti/faster-qwen3-tts (CUDA graphs, incremental audio).
@@ -227,7 +233,7 @@ if ${PHONON_SELECTED}; then
 fi
 
 # Backends whose run_eval.py has no --voice_clone flag at all; passing one would be an error.
-NO_CLONE_FLAG="inflect-nano inflect-v2 kokoro lfm2-audio lfm3-audio magpie-tts paradee phonon photon qwen3tts qwen3tts-fast supertonic vibevoice_realtime voxtral-tts woof"
+NO_CLONE_FLAG="inflect-nano inflect-v2 kokoro lfm2-audio lfm3-audio magpie-tts paradee paradee-v1.3 phonon photon qwen3tts qwen3tts-fast supertonic vibevoice_realtime voxtral-tts woof"
 
 # run_eval.py writes to its own output roots (outside Git, mode 0700) and names the sidecar itself,
 # so Phonon skips the generic run/rename/copy below; `preamble` is submit_one's CPU thread cap.
@@ -277,7 +283,18 @@ submit_one() {
     # Sidecar suffix: engine first (when the target names one), then always the flavor.
     local sidecar_suffix="${engine:+__${engine}}__${FLAVOR}"
     local image="hf.co/spaces/${space}"
-    local inject preamble postamble clone_flag=""
+    local inject preamble postamble clone_flag="" setup=""
+    # No Space: the backend's job_image.sh gives the registry image and the job-start pip install
+    # (submit_one runs in its own subshell, so the sourced variables do not leak to other targets).
+    if [[ -z "${space}" ]]; then
+        if [[ ! -f "${REPO_ROOT}/${backend}/job_image.sh" ]]; then
+            echo "ERROR: target for ${model_id} has no Space and ${backend}/job_image.sh does not exist." >&2
+            return 1
+        fi
+        source "${REPO_ROOT}/${backend}/job_image.sh"
+        image="${GEN_IMAGE}"
+        setup="$(gen_setup "${TTFA_DEVICE}")"
+    fi
 
     inject="$(inject_cmd_gz "${REPO_ROOT}/${backend}/run_eval.py" "/app/${backend}/run_eval.py")"
 
@@ -380,6 +397,7 @@ submit_one() {
             ${inject}
             ${TTFA_INJECT}
             ${preamble}
+            ${setup}
             cd /app/${backend} && python run_eval.py \
                 --model_id=${model_id} \
                 --dataset_path=${TTFA_DATASET_PATH} \
