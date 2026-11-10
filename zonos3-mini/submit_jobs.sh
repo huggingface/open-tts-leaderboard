@@ -5,12 +5,18 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common.sh"
 
 # ── Backend config ───────────────────────────────────────────────────────────
-TTS_SPACE="${TTS_SPACE:-mrfakename/evals-zonos3-mini}"   # stage-1 image (Dockerfile in the Space: https://huggingface.co/spaces/mrfakename/evals-zonos3-mini/blob/main/Dockerfile)
+TTS_SPACE="${TTS_SPACE:-bezzam/evals-zonos3-mini}"   # stage-1 image (Dockerfile in the Space: https://huggingface.co/spaces/bezzam/evals-zonos3-mini/blob/main/Dockerfile)
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
 RUN_EVAL_INJECT="$(inject_run_eval)"
 
 # VOICE_CLONE=true: zero-shot voice cloning + SIM; false (default) = fixed default voice.
 SUPPORTS_VOICE_CLONE=true
+
+# The fixed voice is a native default voice of each language (VOICES in run_eval.py); the model has none in
+# Japanese, and a foreign clip derails the speech, so ja runs in voice-clone mode only.
+supports_language() {
+    [[ "${CLONE}" == "true" || "$1" != "ja" ]]
+}
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id batch_size". ──
 generate_stage() {

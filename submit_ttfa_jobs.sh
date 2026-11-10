@@ -214,6 +214,9 @@ TTFA_TARGETS=(
     "woof|woof|bezzam/evals-woof|ConwayResearch/Underdog-Woof|--voice=juno --threads=0"
     # Second voice: sidecar suffixed _mira (publish with --variant _mira).
     "woof-mira|woof|bezzam/evals-woof|ConwayResearch/Underdog-Woof|--voice=mira --threads=0"
+    # GPU only (Mini-SGLang kernels). Streams through TTSLLM.generate_stream, the server's /v2/generate path; the job
+    # sources the repo's env.sh first (see submit_one), as zonos3-mini/submit_jobs.sh does.
+    "zonos3-mini|zonos3-mini|${ZONOS3_MINI_SPACE:-bezzam/evals-zonos3-mini}|Zyphra/ZONOS3-Mini|--language=${TTFA_LANG}"
     # HTTP CLIENTS of an inference server the job starts itself (see the preamble in submit_one);
     # --server_pid makes a dead server fail the wait immediately.
     "voxtral-tts|voxtral-tts|bezzam/evals-voxtral|mistralai/Voxtral-4B-TTS-2603|--base_url=http://localhost:${VLLM_PORT} --server_pid=\${SERVER_PID}"
@@ -360,6 +363,15 @@ submit_one() {
             trap 'kill \$SERVER_PID 2>/dev/null || true' EXIT"
             postamble="|| { echo '--- sgl-omni serve log (full) ---'; cat /app/higgs/results/server.log; exit 1; }"
             ;;
+        zonos3-mini)
+            if [[ "${TTFA_DEVICE}" == cpu ]]; then
+                echo "ERROR: Zyphra/ZONOS3-Mini runs on Mini-SGLang CUDA kernels only; no CPU probe." >&2
+                return 1
+            fi
+            # CUDA toolchain for the JIT kernels and the per-GPU kernel choice (Hopper vs A100), as in submit_jobs.sh.
+            preamble="${preamble}
+            source /opt/ZONOS3-Mini/servers/sgl/scripts/env.sh"
+            ;;
         voxtral-tts)
             # See voxtral-tts/submit_jobs.sh: the forward-compat libcuda must stay unset on h200,
             # or every StageEngineCoreProc dies at init_device() with CUDA error 803.
@@ -427,7 +439,8 @@ for target in "${TTFA_TARGETS[@]}"; do
         PHONON_MODELS+=("${model_id}"); PHONON_JOB_SPACE="${space}"
         continue
     fi
-    log="${LOG_DIR}/${label}_${model_id//\//-}.log"
+    # Flavor in the name: probes of one target on several flavors (run in parallel) keep separate logs.
+    log="${LOG_DIR}/${label}_${model_id//\//-}__${FLAVOR}.log"
     echo "Submitting TTFA probe: ${model_id}  (label=${label}, backend=${backend}, log: ${log})"
     [[ "${backend}" == fishaudio-drama-3 && -z "${TTFA_FLAVOR:-}" && "${TTFA_DEVICE}" != cpu ]] &&
         echo "  NOTE: ${model_id} runs on h200, not ${FLAVOR}: its FP8 experts need sm_89+."
