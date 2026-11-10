@@ -1,18 +1,31 @@
 """
 TTS synthesis for the Open TTS Leaderboard (ZONOS3-Mini backend, stage 1).
 
-ZONOS3-Mini (Zyphra/ZONOS3-Mini, Apache-2.0) is a multilingual MoE TTS model (44.1 kHz) driven through the offline
-`zonos3_sgl.tts.TTSLLM` API of https://github.com/Zyphra/ZONOS3-Mini, which generates a whole minibatch in one call.
-The model clones from a raw reference clip (codec prefix): `--voice_clone` encodes each sample's `prompt_audio`
-(timed); by default (`--no-voice_clone`) every sample uses the prefix of `--voice` (a native default voice of the
-split's language), encoded once (no SIM).
+ZONOS3-Mini (Zyphra/ZONOS3-Mini, Apache-2.0) is a multilingual MoE TTS model (44.1 kHz) with the runtime of
+https://github.com/Zyphra/ZONOS3-Mini.
 
-Per-sample generation time is the minibatch time divided by the minibatch size, as in the other batched backends.
+`--voice_clone` clones each sample's `prompt_audio` in speaker-embedding mode (the release speaker encoder embeds the
+clip; the model's default cloning mode, `prompt_text` unused) through the runtime's server: submit_jobs.sh starts
+servers/sgl/scripts/serve.sh in the job (as the README serves the model) and this script sends `--batch_size`
+concurrent POST /v2/generate requests per batch, which the server's scheduler runs as one batch while it decodes audio
+beside the generation. By default (`--no-voice_clone`) every sample uses the prefix of `--voice` (a native default
+voice of the split's language), encoded once, through the offline `zonos3_sgl.tts.TTSLLM` API, which generates a whole
+minibatch in one call (no SIM). Either way, per-sample generation time is the minibatch time divided by its size, as in
+the other batched backends.
+
+Text: the runtime normalizes en, zh, ja, ko, de, es, fr, it and pt (NeMo). A voice-clone split in any other language is
+sent as en_us without normalization, its numbers spelled out here with num2words.
 """
 
 import argparse
+import base64
+import json
 import os
+import re
 import time
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import soundfile as sf
@@ -31,7 +44,8 @@ from run_eval_utils import (
 )
 
 # ASR language -> ZONOS3 language code (text normalization).
-LANGUAGES = {"en": "en_us", "zh": "cmn", "fr": "fr_fr", "pt": "pt_br"}
+LANGUAGES = {"en": "en_us", "zh": "cmn", "fr": "fr_fr", "de": "de", "es": "es", "it": "it", "pt": "pt_br",
+             "ja": "ja", "ko": "ko"}
 
 # ASR language -> fixed voice (--no-voice_clone): a native default voice of the model, female where there is one.
 # The model continues the reference clip's codec prefix, so a clip in another language derails the speech (the
@@ -48,9 +62,185 @@ VOICES = {
     "pt": "Portuguese/Leonor_pt_F_1.wav",
 }
 
+# ── Voice clone through the runtime's server ─────────────────────────────────
+EMPTY_AUDIO_SECONDS = 0.1  # an empty response is written as this much silence, so it scores as a full miss
+
+# Languages without runtime normalization whose numbers num2words reads: decimal separator, and the word for "%"
+# (Turkish says it before the number).
+NUMBER_DECIMAL = {"ru": ",", "nl": ",", "pl": ",", "cs": ",", "ro": ",", "fi": ",", "tr": ",", "id": ",", "vi": ",",
+                  "ar": ".", "th": "."}
+NUMBER_PERCENT = {"ru": "процентов", "nl": "procent", "pl": "procent", "cs": "procent", "ro": "la sută", "fi": "prosenttia",
+                  "tr": "yüzde", "id": "persen", "vi": "phần trăm", "ar": "بالمئة", "th": "เปอร์เซ็นต์"}
+# num2words' decimal reading is wrong for these ("3,5" -> vi "ba phẩy năm mươi"): integer part, this word, fraction digits
+DECIMAL_WORD = {"tr": "virgül", "vi": "phẩy", "ar": "فاصلة", "th": "จุด"}
+# an optional "%" before (Turkish writing) or after the number: thousand groups split by spaces, or digits with "." /
+# "," inside (one separator: a decimal or thousands; more: a date or version, read part by part)
+NUMBER = re.compile(r"(%\s?)?(?<![\w.,])(\d{1,3}(?:[ \u00a0]\d{3})+(?!\d)|\d+(?:[.,]\d+)*)(\s?%)?")
+
+
+def number_words(match, lang):
+    """One number (thousand groups, decimal, optional %) in words; the match unchanged if num2words fails."""
+    from num2words import num2words  # installed by submit_jobs.sh (only the voice-clone eval needs it)
+
+    raw, percent = match.group(2), match.group(1) or match.group(3)
+    dec = NUMBER_DECIMAL[lang]
+    try:
+        if re.fullmatch(r"\d+", raw) or any(c in raw for c in " \u00a0") or re.fullmatch(r"\d+[.,]\d{3}", raw) and dec not in raw:
+            words = num2words(int(re.sub(r"\D", "", raw)), lang=lang)  # an integer (the other separator groups thousands)
+        elif dec in raw and raw.count(dec) == 1 and not re.search(r"[.,]", raw.replace(dec, "", 1)):
+            whole, frac = raw.split(dec)
+            if lang in DECIMAL_WORD:
+                zeros = len(frac) - len(frac.lstrip("0"))
+                words = " ".join([num2words(int(whole), lang=lang), DECIMAL_WORD[lang]]
+                                 + [num2words(0, lang=lang)] * zeros + ([num2words(int(frac), lang=lang)] if frac.lstrip("0") else []))
+            else:
+                words = num2words(float(f"{whole}.{frac}"), lang=lang)
+        else:  # the other separator (not a thousands group), or several: a date, version or ordinal, part by part
+            words = " ".join(num2words(int(part), lang=lang) for part in re.split(r"[.,]", raw))
+    except (NotImplementedError, OverflowError, ValueError):
+        return match.group(0)
+    if percent:
+        words = f"{NUMBER_PERCENT[lang]} {words}" if lang == "tr" else f"{words} {NUMBER_PERCENT[lang]}"
+    return words
+
+
+def spell_numbers(text, lang):
+    """Digits -> words for a language without runtime normalization (unchanged where num2words has no reading)."""
+    if lang not in NUMBER_DECIMAL:
+        return text
+
+    def replace(m):
+        before, after = text[m.start() - 1 : m.start()], text[m.end() : m.end() + 1]
+        return (" " if before.isalnum() else "") + number_words(m, lang) + (" " if after.isalnum() else "")
+    return NUMBER.sub(replace, text)
+
+
+def http(url, payload=None, timeout=60):
+    """GET (payload None) or POST JSON; returns (body bytes, response headers)."""
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json"} if data is not None else {}
+    with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers), timeout=timeout) as resp:
+        return resp.read(), resp.headers
+
+
+def process_alive(pid):
+    """False once `pid` has exited (a zombie counts as exited)."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except FileNotFoundError:
+        return False
+
+
+def wait_for_server(base_url, timeout, server_pid, server_log=None):
+    """Poll GET /v2/health; fail fast if the server process dies or its log shows a traceback (a scheduler or tokenizer
+    subprocess that crashes leaves the API process up but never healthy). The first start JIT-compiles kernels."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            http(f"{base_url}/v2/health", timeout=10)
+            return
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            pass
+        if server_pid and not process_alive(server_pid):
+            raise RuntimeError("ZONOS3-Mini server exited before it became healthy (its log tail follows).")
+        if server_log and os.path.exists(server_log):
+            with open(server_log, errors="replace") as f:
+                if "Traceback (most recent call last)" in f.read():
+                    raise RuntimeError("ZONOS3-Mini server raised during startup (its log tail follows).")
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"ZONOS3-Mini server not healthy after {timeout}s.")
+        time.sleep(10)
+
+
+def synthesize(base_url, payload, timeout, retries):
+    """POST /v2/generate -> (float32 mono audio, sample rate). Retries 5xx/connection errors, raises on 4xx."""
+    for attempt in range(retries + 1):
+        try:
+            body, headers = http(f"{base_url}/v2/generate", payload, timeout=timeout)
+            return np.frombuffer(body, dtype="<f4").copy(), int(headers.get("X-Audio-Sample-Rate", 44100))
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or attempt == retries:
+                raise RuntimeError(f"/v2/generate HTTP {e.code}: {e.read()[:500]!r}") from e
+        except (urllib.error.URLError, ConnectionError, TimeoutError):
+            if attempt == retries:
+                raise
+        time.sleep(2.0 * 2**attempt)
+
+
+def server_voice_clone(args):
+    """Voice-clone eval through the runtime's server: each minibatch as `--batch_size` concurrent requests in
+    speaker-embedding mode (the server embeds each prompt clip inside the timed requests)."""
+    server_language = LANGUAGES.get(args.language, "en_us")
+    text_normalization = args.language in LANGUAGES
+    wait_for_server(args.server_url, args.server_timeout, args.server_pid, args.server_log)
+    caps = json.loads(http(f"{args.server_url}/v2/capabilities")[0])
+    if "embedding" not in caps["speaker_modes"]:
+        raise SystemExit(f"The served checkpoint has no embedding speaker mode: {caps['speaker_modes']}")
+    served = json.loads(http(f"{args.server_url}/v1/models")[0])["data"][0]["root"]
+    print(f"ZONOS3-Mini server: model={served} codec={caps['audio_codec']} decoder={json.dumps(caps['decoder'])}")
+    print(f"language={args.language} -> {server_language}, text_normalization={text_normalization}")
+
+    paths = output_paths(args, "_voice_clone")
+    model_dir, dataset_dir_name, manifest_path = paths.model_dir, paths.dataset_dir_name, paths.manifest_path
+    os.makedirs(os.path.join(paths.output_dir, "prompts"), exist_ok=True)
+    dataset = load_tts_dataset(args, ("prompt_audio",))
+    executor = ThreadPoolExecutor(max_workers=args.batch_size)
+
+    def run_batch(batch):
+        """Synthesize a minibatch -> (list of 1d float32 arrays, sample rate, prompt paths, elapsed_s)."""
+        payloads, prompt_rels = [], []
+        for sample_id, text, prompt in zip(batch["id"], batch[args.text_column], batch["prompt_audio"]):
+            # The prompt is written under results/ (untimed) so stage 3 (SIM) reads the clip the server embedded.
+            prompt_rel = os.path.join(dataset_dir_name, "prompts", f"prompt_{sample_id}.wav")
+            prompt_path = os.path.join(model_dir, prompt_rel)
+            if not os.path.exists(prompt_path):
+                sf.write(prompt_path, np.asarray(prompt["array"], dtype=np.float32), prompt["sampling_rate"])
+            with open(prompt_path, "rb") as f:
+                speaker_audio = base64.b64encode(f.read()).decode("ascii")
+            payloads.append({
+                "text": spell_numbers(text, args.language), "language": server_language,
+                "text_normalization": text_normalization, "speaker_mode": "embedding",
+                "speaker_audio_base64": speaker_audio, "speaker_audio_name": os.path.basename(prompt_path),
+                "seed": args.seed, "max_tokens": args.max_tokens, "stream": False, "format": "pcm",
+            })
+            prompt_rels.append(prompt_rel)
+        start = time.perf_counter()
+        outputs = list(executor.map(
+            lambda p: synthesize(args.server_url, p, args.request_timeout, args.retries), payloads))
+        elapsed = time.perf_counter() - start
+        return [audio for audio, _ in outputs], outputs[0][1], prompt_rels, elapsed
+
+    done_entries = load_done_entries(manifest_path, args.resume)
+    manifest_file = open_manifest(manifest_path, done_entries)
+    starts = pending_batches(dataset, args.batch_size, done_entries, dataset_dir_name)
+    warm_up(run_batch, dataset, starts, args.batch_size, args.warmup_steps)
+
+    for start in tqdm(starts, desc="Generating"):
+        batch = dataset[start : start + args.batch_size]
+        texts = list(batch[args.text_column])
+        wavs, sampling_rate, prompt_rels, elapsed = run_batch(batch)
+        per_sample = elapsed / len(texts)
+        for sample_id, text, audio, prompt_rel in zip(batch["id"], texts, wavs, prompt_rels):
+            if audio.size == 0:
+                print(f"WARNING: empty audio for sample {sample_id}; writing {EMPTY_AUDIO_SECONDS}s of silence.")
+                audio = np.zeros(int(EMPTY_AUDIO_SECONDS * sampling_rate), dtype=np.float32)
+            rel_path = wav_rel_path(dataset_dir_name, sample_id)
+            sf.write(os.path.join(model_dir, rel_path), audio, sampling_rate)
+            write_entry(manifest_file, manifest_entry(rel_path, len(audio) / sampling_rate, per_sample, text, prompt_rel))
+        manifest_file.flush()
+
+    manifest_file.close()
+    executor.shutdown()
+    print("Results saved at path:", os.path.abspath(manifest_path))
+    print_next_steps(True)
+
 
 def main(args):
     set_seed(args.seed)
+    if args.voice_clone and args.ttfa_probe == 0:
+        server_voice_clone(args)
+        return
 
     # The README's offline settings: FlashAttention, per-request cache, half the GPU for the KV cache (codec fits).
     tts = TTSLLM(model_path=f"hf://{args.model_id}/lm/zonos3_mini",
@@ -69,19 +259,12 @@ def main(args):
         wav, sr = sf.read(args.voice, dtype="float32", always_2d=True)
         voice = tts.encode_reference(torch.from_numpy(wav.T.copy()), sr)
 
-    def synth_batch(texts, prompt_audios):
-        """Synthesize a list of texts. Return (list of 1d float32 arrays, sample rate, elapsed_s)."""
+    def synth_batch(texts):
+        """Synthesize a list of texts in the fixed voice. Return (list of 1d float32 arrays, sample rate, elapsed_s)."""
         torch.cuda.synchronize()
         start = time.perf_counter()
-        if voice is not None:
-            reference = {"speaker_reference_codes": voice}
-        else:
-            reference = {"speaker_reference_audio": [
-                (torch.from_numpy(np.asarray(p["array"], dtype=np.float32)).reshape(1, -1), p["sampling_rate"])
-                for p in prompt_audios
-            ]}
         results = tts.generate(texts, TTSSamplingParams(seed=args.seed), language=language, decode_audio=False,
-                               **reference)
+                               speaker_reference_codes=voice)
         wavs = [decode(r) for r in results]
         torch.cuda.synchronize()
         elapsed = time.perf_counter() - start
@@ -110,8 +293,6 @@ def main(args):
     mode_suffix = "_voice_clone" if args.voice_clone else ""
     paths = output_paths(args, mode_suffix)
     model_dir, dataset_dir_name, manifest_path = paths.model_dir, paths.dataset_dir_name, paths.manifest_path
-    if args.voice_clone:
-        os.makedirs(os.path.join(paths.output_dir, "prompts"), exist_ok=True)
 
     dataset = load_tts_dataset(args, ("prompt_audio",) if args.voice_clone else ())
 
@@ -169,7 +350,7 @@ def main(args):
     manifest_file = open_manifest(manifest_path, done_entries)
 
     def run_batch(batch):
-        return synth_batch(list(batch[args.text_column]), batch["prompt_audio"] if args.voice_clone else None)
+        return synth_batch(list(batch[args.text_column]))
 
     starts = pending_batches(dataset, args.batch_size, done_entries, dataset_dir_name)
     warm_up(run_batch, dataset, starts, args.batch_size, args.warmup_steps)
@@ -180,15 +361,10 @@ def main(args):
         texts = list(batch[args.text_column])
         wavs, sampling_rate, elapsed = run_batch(batch)
         per_sample = elapsed / len(texts)
-        for i, (sample_id, text, audio) in enumerate(zip(batch["id"], texts, wavs)):
-            prompt_rel = None
-            if args.voice_clone:
-                prompt = batch["prompt_audio"][i]
-                prompt_rel = os.path.join(dataset_dir_name, "prompts", f"prompt_{sample_id}.wav")
-                sf.write(os.path.join(model_dir, prompt_rel), prompt["array"], prompt["sampling_rate"])
+        for sample_id, text, audio in zip(batch["id"], texts, wavs):
             rel_path = wav_rel_path(dataset_dir_name, sample_id)
             sf.write(os.path.join(model_dir, rel_path), audio, sampling_rate)
-            write_entry(manifest_file, manifest_entry(rel_path, len(audio) / sampling_rate, per_sample, text, prompt_rel))
+            write_entry(manifest_file, manifest_entry(rel_path, len(audio) / sampling_rate, per_sample, text, None))
         manifest_file.flush()
 
     manifest_file.close()
@@ -203,6 +379,14 @@ if __name__ == "__main__":
     parser.add_argument("--voice", type=str, default=None,
                         help="Reference clip of the fixed voice (--no-voice_clone); default: the native voice of "
                              "--language in VOICES.")
+    # --voice_clone: the runtime's server (started by submit_jobs.sh)
+    parser.add_argument("--server_url", type=str, default="http://127.0.0.1:1919", help="The runtime's server (serve.sh's port).")
+    parser.add_argument("--server_pid", type=int, default=0, help="Server PID: the startup wait fails fast if it exits.")
+    parser.add_argument("--server_log", type=str, default=None, help="Server log: the startup wait fails fast on a traceback.")
+    parser.add_argument("--server_timeout", type=int, default=3600, help="Seconds to wait for /v2/health.")
+    parser.add_argument("--request_timeout", type=int, default=900, help="Seconds per /v2/generate request.")
+    parser.add_argument("--retries", type=int, default=4, help="Retries per request on 5xx / connection errors.")
+    parser.add_argument("--max_tokens", type=int, default=1350, help="Frame cap per request (15 Hz: 1350 = 90 s).")
     add_common_args(parser, batch_size=32, voice_clone=False)
 
     args = parser.parse_args()
