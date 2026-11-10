@@ -8,6 +8,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common
 TTS_SPACE="${TTS_SPACE:-mrfakename/evals-zonos2}"   # stage-1 image (Dockerfile in the Space: https://huggingface.co/spaces/mrfakename/evals-zonos2/blob/main/Dockerfile)
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
 RUN_EVAL_INJECT="$(inject_run_eval)"
+DEFAULT_STAGES="generate transcribe sim utmos komos"   # + KOMOS (Korean MOS): runs on the ko splits only
 
 # VOICE_CLONE=true: zero-shot voice cloning + SIM; false (default) = fixed default voice.
 SUPPORTS_VOICE_CLONE=true
