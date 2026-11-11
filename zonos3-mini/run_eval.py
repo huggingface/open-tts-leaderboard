@@ -13,8 +13,11 @@ voice of the split's language), encoded once, through the offline `zonos3_sgl.tt
 minibatch in one call (no SIM). Either way, per-sample generation time is the minibatch time divided by its size, as in
 the other batched backends.
 
-Text: the runtime normalizes en, zh, ja, ko, de, es, fr, it and pt (NeMo). A voice-clone split in any other language is
-sent as en_us without normalization, its numbers spelled out here with num2words.
+Text: the runtime normalizes en, zh, ja, ko, de, es, fr, it and pt (the NeMo grammars). A voice-clone split in any other
+language is sent as en_us without normalization, its numbers spelled out here with num2words.
+
+`--device cpu` (submit_ttfa_jobs.sh's zonos3-mini-ggml target, on its CPU image) is the TTFA probe of the runtime's
+native ggml server (servers/ggml of the same repository) instead: see ttfa_probe_ggml.
 """
 
 import argparse
@@ -22,6 +25,8 @@ import base64
 import json
 import os
 import re
+import socket
+import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -29,19 +34,20 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import soundfile as sf
-import torch
 from tqdm import tqdm
-
-from zonos3.generation import SAMPLE_RATE  # generate_stream's chunk rate (44.1 kHz)
-from zonos3.tts.delay import shear_up
-from zonos3_sgl.tts import TTSLLM, TTSSamplingParams
 
 CODEBOOK_SIZE = 4096  # valid codec token ids are [0, 4096) (zonos3.tokenizer.matched_codec.decode)
 
+# The runtime (torch, zonos3, zonos3_sgl) is imported where the GPU paths use it: the CPU image has only the ggml server.
 from run_eval_utils import (
     add_common_args, load_done_entries, load_tts_dataset, manifest_entry, open_manifest, output_paths,
     pending_batches, print_model_size, print_next_steps, set_seed, warm_up, wav_rel_path, write_entry,
 )
+
+# --device cpu: the post-training-quantized backbone the ggml runtime publishes (gguf/zonos3-ptq.gguf of the model repo,
+# Q4_0 experts and Q8_0 mixers; the README's CPU default) and the files the server picks up next to it (the keep2_plain
+# decoder zac-keep2.gguf, the speaker encoder spk-encoder.gguf), plus the default voices.
+GGML_BACKBONE = "zonos3-ptq.gguf"
 
 # ASR language -> ZONOS3 language code (text normalization).
 LANGUAGES = {"en": "en_us", "zh": "cmn", "fr": "fr_fr", "de": "de", "es": "es", "it": "it", "pt": "pt_br",
@@ -236,11 +242,117 @@ def server_voice_clone(args):
     print_next_steps(True)
 
 
+def ttfa_probe_ggml(args):
+    """--device cpu: TTFA of the runtime's native ggml server (zonos3-server, built in the CPU image) on GGML_BACKBONE.
+    This job starts the server on the CPU and is then its HTTP client: one streaming POST /v2/generate at a time, the
+    first audio bytes reaching the client as first audio (the loopback transport is inside the clock), every response
+    read to its end. The voice is the fixed native voice of --language in speaker-embedding mode, as the GPU probe
+    conditions generate_stream; --voice_clone sends each row's prompt clip as its original file bytes (the server
+    decodes and embeds it inside the timed request). Text is sent as the eval sends it (the server normalizes)."""
+    from ttfa_probe import run_probe, sample_indices  # injected only by submit_ttfa_jobs.sh
+
+    if args.ttfa_probe == 0:
+        raise SystemExit("--device cpu is the TTFA probe of the ggml runtime only (--ttfa_probe); the eval runs on the GPU.")
+    language = LANGUAGES.get(args.language, "en_us")
+    if not args.voice_clone and args.language not in VOICES:
+        raise SystemExit(f"No native default voice for '{args.language}': use --voice_clone.")
+    mode_suffix = "_voice_clone" if args.voice_clone else ""
+    dataset = load_tts_dataset(args, ("prompt_audio",) if args.voice_clone else (), decode_audio=False)
+    jobs = []
+    for i in sample_indices(args.ttfa_probe, len(dataset)):
+        row = dataset[i]
+        job = {"text": spell_numbers(row[args.text_column], args.language), "language": language,
+               "text_normalization": args.language in LANGUAGES, "seed": args.seed, "stream": True, "format": "pcm",
+               "speaker_mode": "embedding"}
+        if args.voice_clone:
+            prompt = row["prompt_audio"]
+            data = prompt["bytes"] if prompt.get("bytes") else open(prompt["path"], "rb").read()
+            job.update(speaker_audio_base64=base64.b64encode(data).decode("ascii"),
+                       speaker_audio_name=os.path.basename(prompt.get("path") or "prompt.wav"))
+        jobs.append(job)
+
+    with socket.socket() as s:  # a free loopback port for the server
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    base_url = f"http://127.0.0.1:{port}"
+    log_path = os.path.abspath("zonos3_server.log")
+    command = [args.ggml_server, os.path.join(args.gguf_dir, GGML_BACKBONE), "--cpu", "--host", "127.0.0.1",
+               "--port", str(port), "--tts-default-voices-dir", os.path.join(args.gguf_dir, "voices")]
+    # The speaker encoder (voice clone) defaults to the host's core count; the job's thread cap (the CPU preamble's
+    # OMP_NUM_THREADS, the cgroup quota) keeps it from oversubscribing the vCPUs. The backbone and decoder keep ggml's.
+    env = dict(os.environ)
+    if env.get("OMP_NUM_THREADS"):
+        env.setdefault("SPK_THREADS", env["OMP_NUM_THREADS"])
+    print("Starting:", " ".join(command), f"(SPK_THREADS={env.get('SPK_THREADS', 'default')})", flush=True)
+    with open(log_path, "w") as log:
+        server = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env)
+    try:
+        try:
+            wait_for_server(base_url, args.server_timeout, server.pid, log_path)
+        except RuntimeError:
+            with open(log_path, errors="replace") as f:
+                print("--- zonos3-server log ---\n" + f.read()[-5000:])
+            raise
+        caps = json.loads(http(f"{base_url}/v2/capabilities")[0])
+        voice = None
+        if not args.voice_clone:  # default voices are listed by a hashed id: match the file's stem to the label
+            key = lambda name: re.sub(r"[^a-z0-9]", "", name.lower())
+            stem = os.path.splitext(os.path.basename(VOICES[args.language]))[0]
+            speakers = json.loads(http(f"{base_url}/v2/speakers")[0])["speakers"]
+            voice = next((s for s in speakers if key(s.get("label") or s["id"]) == key(stem)), None)
+            if voice is None:
+                raise SystemExit(f"{stem} is not one of the server's voices: {[s.get('label') for s in speakers]}")
+            for job in jobs:
+                job["speaker_embedding_id"] = voice["id"]
+        print(f"zonos3-server: backbone={GGML_BACKBONE} decoder={caps.get('decoder', {}).get('id')} "
+              f"language={args.language} -> {language} voice={voice['label'] if voice else 'voice_clone'}", flush=True)
+
+        def gen(job):
+            request = urllib.request.Request(f"{base_url}/v2/generate", data=json.dumps(job).encode("utf-8"),
+                                             headers={"Content-Type": "application/json"})
+            first, parts = None, []
+            with urllib.request.urlopen(request, timeout=args.request_timeout) as response:
+                sample_rate = int(response.headers.get("X-Audio-Sample-Rate", 44100))
+                while chunk := response.read1(1 << 16):
+                    if first is None:
+                        first = time.perf_counter()
+                    parts.append(chunk)
+            body = b"".join(parts)
+            return np.frombuffer(body[: len(body) // 4 * 4], dtype="<f4"), sample_rate, first
+
+        run_probe(
+            gen, jobs, model_id=args.model_id, dataset_path=args.dataset_path, dataset_config=args.dataset,
+            split=args.split, out_dir=output_paths(args, mode_suffix).model_dir, mode_suffix=mode_suffix,
+            n=args.ttfa_probe,
+            extra={"device": "cpu", "engine": "zonos3-server (ggml, servers/ggml of the ZONOS3-Mini repo)",
+                   "backbone": f"{GGML_BACKBONE} (post-training quantized: Q4_0 experts, Q8_0 mixers)",
+                   "decoder": caps.get("decoder", {}).get("id"), "language": language,
+                   "streaming_api": "HTTP POST /v2/generate (stream)", "speaker_mode": "embedding",
+                   "voice": "voice_clone (prompt embedding)" if args.voice_clone else voice["label"],
+                   "threads": "zonos3-server defaults (ggml CPU backend: 4)",
+                   "zonos3_commit": os.environ.get("ZONOS3_COMMIT")},
+        )
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            server.kill()
+
+
 def main(args):
     set_seed(args.seed)
+    if args.device == "cpu":
+        ttfa_probe_ggml(args)
+        return
     if args.voice_clone and args.ttfa_probe == 0:
         server_voice_clone(args)
         return
+
+    import torch
+    from zonos3.generation import SAMPLE_RATE  # generate_stream's chunk rate (44.1 kHz)
+    from zonos3.tts.delay import shear_up
+    from zonos3_sgl.tts import TTSLLM, TTSSamplingParams
 
     # The README's offline settings: FlashAttention, per-request cache, half the GPU for the KV cache (codec fits).
     tts = TTSLLM(model_path=f"hf://{args.model_id}/lm/zonos3_mini",
@@ -387,6 +499,11 @@ if __name__ == "__main__":
     parser.add_argument("--request_timeout", type=int, default=900, help="Seconds per /v2/generate request.")
     parser.add_argument("--retries", type=int, default=4, help="Retries per request on 5xx / connection errors.")
     parser.add_argument("--max_tokens", type=int, default=1350, help="Frame cap per request (15 Hz: 1350 = 90 s).")
+    # --device cpu: the ggml runtime of the CPU image (started by ttfa_probe_ggml)
+    parser.add_argument("--ggml_server", type=str, default="/opt/ZONOS3-Mini/servers/ggml/build/zonos3-server",
+                        help="The runtime's native ggml server binary (--device cpu).")
+    parser.add_argument("--gguf_dir", type=str, default="/opt/gguf",
+                        help=f"Directory of {GGML_BACKBONE}, zac-keep2.gguf, spk-encoder.gguf and voices/ (--device cpu).")
     add_common_args(parser, batch_size=32, voice_clone=False)
 
     args = parser.parse_args()
