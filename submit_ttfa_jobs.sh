@@ -220,6 +220,13 @@ TTFA_TARGETS=(
     "woof|woof|bezzam/evals-woof|ConwayResearch/Underdog-Woof|--voice=juno --threads=0"
     # Second voice: sidecar suffixed _mira (publish with --variant _mira).
     "woof-mira|woof|bezzam/evals-woof|ConwayResearch/Underdog-Woof|--voice=mira --threads=0"
+    # GPU only (Mini-SGLang kernels). Streams through TTSLLM.generate_stream, the server's /v2/generate path; the job
+    # sources the repo's env.sh first (see submit_one), as zonos3-mini/submit_jobs.sh does.
+    "zonos3-mini|zonos3-mini|${ZONOS3_MINI_SPACE:-bezzam/evals-zonos3-mini}|Zyphra/ZONOS3-Mini|--language=${TTFA_LANG}"
+    # The same model on the runtime's native ggml server (zonos3-server, the published post-training-quantized
+    # backbone gguf/zonos3-ptq.gguf), with its own CPU image; run_eval.py --device cpu starts the server and streams
+    # /v2/generate from it. CPU only:  TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh zonos3-mini-ggml
+    "zonos3-mini-ggml|zonos3-mini|${ZONOS3_MINI_GGML_SPACE:-Zyphra/evals-zonos3-mini-cpu}|Zyphra/ZONOS3-Mini|--language=${TTFA_LANG}|ggml"
     # ONNX Runtime CPU only (run_eval.py refuses a GPU device):  TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh pivo
     # --threads=1 (not the cgroup quota): the model card's setting and the fastest (see pivo/submit_jobs.sh).
     # Timestamps the first 10 ms frame of PiVo's own iter_audio; the g2p_en fallback is inside the clock.
@@ -381,6 +388,23 @@ submit_one() {
             trap 'kill \$SERVER_PID 2>/dev/null || true' EXIT"
             postamble="|| { echo '--- sgl-omni serve log (full) ---'; cat /app/higgs/results/server.log; exit 1; }"
             ;;
+        zonos3-mini)
+            if [[ "${engine}" == ggml ]]; then
+                # The CPU image has the ggml server only: no CUDA kernels.
+                if [[ "${TTFA_DEVICE}" != cpu ]]; then
+                    echo "ERROR: zonos3-mini-ggml probes the ggml server on its CPU image: TTFA_DEVICE=cpu." >&2
+                    return 1
+                fi
+            else
+                if [[ "${TTFA_DEVICE}" == cpu ]]; then
+                    echo "ERROR: Zyphra/ZONOS3-Mini runs on Mini-SGLang CUDA kernels only here; zonos3-mini-ggml is its CPU probe." >&2
+                    return 1
+                fi
+                # CUDA toolchain for the JIT kernels and the per-GPU kernel choice (Hopper vs A100), as in submit_jobs.sh.
+                preamble="${preamble}
+            source /opt/ZONOS3-Mini/servers/sgl/scripts/env.sh"
+            fi
+            ;;
         voxtral-tts)
             # See voxtral-tts/submit_jobs.sh: the forward-compat libcuda must stay unset on h200,
             # or every StageEngineCoreProc dies at init_device() with CUDA error 803.
@@ -449,7 +473,8 @@ for target in "${TTFA_TARGETS[@]}"; do
         PHONON_MODELS+=("${model_id}"); PHONON_JOB_SPACE="${space}"
         continue
     fi
-    log="${LOG_DIR}/${label}_${model_id//\//-}.log"
+    # Flavor in the name: probes of one target on several flavors (run in parallel) keep separate logs.
+    log="${LOG_DIR}/${label}_${model_id//\//-}__${FLAVOR}.log"
     echo "Submitting TTFA probe: ${model_id}  (label=${label}, backend=${backend}, log: ${log})"
     [[ "${backend}" == fishaudio-drama-3 && -z "${TTFA_FLAVOR:-}" && "${TTFA_DEVICE}" != cpu ]] &&
         echo "  NOTE: ${model_id} runs on h200, not ${FLAVOR}: its FP8 experts need sm_89+."
