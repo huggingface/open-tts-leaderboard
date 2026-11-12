@@ -74,6 +74,7 @@ DATASET_CONFIGS=(
     "tts id id ${MINIMAX_EVAL_PATH}"
     "tts th th ${MINIMAX_EVAL_PATH}"
     "tts vi vi ${MINIMAX_EVAL_PATH}"
+    "tts fa fa ${NEYSHEKAR_EVAL_PATH}"
 )
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
