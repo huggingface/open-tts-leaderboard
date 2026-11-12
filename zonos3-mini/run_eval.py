@@ -278,12 +278,17 @@ def ttfa_probe_ggml(args):
     log_path = os.path.abspath("zonos3_server.log")
     command = [args.ggml_server, os.path.join(args.gguf_dir, GGML_BACKBONE), "--cpu", "--host", "127.0.0.1",
                "--port", str(port), "--tts-default-voices-dir", os.path.join(args.gguf_dir, "voices")]
-    # The speaker encoder (voice clone) defaults to the host's core count; the job's thread cap (the CPU preamble's
-    # OMP_NUM_THREADS, the cgroup quota) keeps it from oversubscribing the vCPUs. The backbone and decoder keep ggml's.
+    # Threads: the job's thread cap (the CPU preamble's OMP_NUM_THREADS, the cgroup quota) for the waveform decoder
+    # (ZAC_THREADS; it decodes the first audio chunk, and on cpu-upgrade 8 threads against ggml's default 4 cut TTFA
+    # p50/p95 by about a fifth and raised batch-1 RTFx 13%) and for the speaker encoder (SPK_THREADS, voice clone; its
+    # default, the host's core count, would oversubscribe the vCPUs). The backbone keeps ggml's default 4: 8 there
+    # lowered RTFx without a TTFA gain of its own.
     env = dict(os.environ)
     if env.get("OMP_NUM_THREADS"):
+        env.setdefault("ZAC_THREADS", env["OMP_NUM_THREADS"])
         env.setdefault("SPK_THREADS", env["OMP_NUM_THREADS"])
-    print("Starting:", " ".join(command), f"(SPK_THREADS={env.get('SPK_THREADS', 'default')})", flush=True)
+    threads = {k: env.get(k, "default") for k in ("ZAC_THREADS", "SPK_THREADS")}
+    print("Starting:", " ".join(command), threads, flush=True)
     with open(log_path, "w") as log:
         server = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, env=env)
     try:
@@ -329,7 +334,9 @@ def ttfa_probe_ggml(args):
                    "decoder": caps.get("decoder", {}).get("id"), "language": language,
                    "streaming_api": "HTTP POST /v2/generate (stream)", "speaker_mode": "embedding",
                    "voice": "voice_clone (prompt embedding)" if args.voice_clone else voice["label"],
-                   "threads": "zonos3-server defaults (ggml CPU backend: 4)",
+                   "threads": {"backbone": "ggml default (4)", "decoder": threads["ZAC_THREADS"],
+                               "speaker_encoder": threads["SPK_THREADS"]},
+                   "stream_decode": "server default (prefix; first chunk from partial frames: stream_codebooks 1)",
                    "zonos3_commit": os.environ.get("ZONOS3_COMMIT")},
         )
     finally:
