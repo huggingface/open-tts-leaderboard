@@ -189,7 +189,7 @@ _is_transient_job_failure() {
 # Output is tee'd, not buffered, so the chain log still streams `hf jobs run`'s live job logs.
 run_stage() {
     local stage_fn="$1" attempt=1 delay="${STAGE_RETRY_SLEEP}" rc out
-    out="$(mktemp "${TMPDIR:-/tmp}/tts_stage_XXXXXX.log")"
+    out="$(mktemp "${TMPDIR:-/tmp}/tts_stage_XXXXXX")"   # Xs must be last: BSD/macOS mktemp keeps a ".log" suffix literal
     while :; do
         "${stage_fn}" 2>&1 | tee "${out}"
         rc=${PIPESTATUS[0]}
