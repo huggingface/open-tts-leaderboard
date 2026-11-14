@@ -8,6 +8,10 @@ pass (`infer_batch`). Default preset voice, no voice cloning, so no stage 3 (SIM
 
 Per-sample generation time is the minibatch time divided by the minibatch size, as in the other
 batched backends. `--batch_size` is also the manifest-writing / resume granularity.
+
+`--mode=v3nano` runs VieNeu-TTS v3 Nano (pnnbao-ump/VieNeu-TTS-v3-Nano, 24 kHz), a small flow model
+the SDK ships as four ONNX graphs on the CPU EP only. On CUDA the graphs are reloaded under the CUDA EP
+(as in `paradee/`), which needs `onnxruntime-gpu`; Nano's `infer_batch` is sequential.
 """
 
 import argparse
@@ -28,12 +32,34 @@ from run_eval_utils import (
 )
 
 
+def _use_cuda_sessions(engine, device):
+    """Reload the Nano engine's four ONNX graphs under the CUDA EP (the SDK hardcodes the CPU EP)."""
+    import onnxruntime as ort
+
+    device_id = int(device.split(":")[1]) if ":" in device else 0
+    # Load pip-installed CUDA/cuDNN (nvidia-* wheels) when they are not on LD_LIBRARY_PATH.
+    if hasattr(ort, "preload_dlls"):
+        ort.preload_dlls()
+    graph_dir = engine._fetch(engine.repo, engine.hf_token)  # already in the HF cache
+    providers = [("CUDAExecutionProvider", {"device_id": device_id}), "CPUExecutionProvider"]
+    for attr, fn in (("s_text", "text_encoder.onnx"), ("s_dur", "duration_predictor.onnx"),
+                     ("s_ve", "vector_estimator.onnx"), ("s_dec", "codec_decoder.onnx")):
+        sess = ort.InferenceSession(str(graph_dir / fn), engine._so, providers=providers)
+        # The CUDA EP silently falls back to CPU (e.g. missing cuDNN); refuse rather than mislabel.
+        if "CUDAExecutionProvider" not in sess.get_providers():
+            raise RuntimeError(f"--device={device} but the CUDA EP did not load for {fn}: {sess.get_providers()}")
+        setattr(engine, attr, sess)
+    engine._prov = providers
+
+
 def main(args):
     set_seed(args.seed)
 
     device = "cuda" if args.device.startswith("cuda") else "cpu"
-    tts = Vieneu(device=device)
-    print(f"Loaded VieNeu-TTS v3 Turbo (vieneu {version('vieneu')}, device={device}, "
+    tts = Vieneu(mode=args.mode, device=device)
+    if args.mode == "v3nano" and device == "cuda":
+        _use_cuda_sessions(tts.engine, args.device)
+    print(f"Loaded VieNeu-TTS {args.mode} (vieneu {version('vieneu')}, device={device}, "
           f"sample_rate={tts.sample_rate}, voice={args.voice or 'default'})")
     print_model_size(getattr(tts, "model", None))
 
@@ -90,6 +116,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_id", type=str, default="pnnbao-ump/VieNeu-TTS-v3-Turbo",
                         help="Model repo id (recorded in the manifest folder name; weights are fetched by the SDK).")
+    parser.add_argument("--mode", type=str, default="v3turbo", choices=["v3turbo", "v3nano"],
+                        help="SDK engine: v3turbo (PyTorch, batched) or v3nano (ONNX).")
     parser.add_argument("--voice", type=str, default=None,
                         help="Preset voice name or id (default: the SDK's default preset voice).")
     add_common_args(parser, batch_size=32)
