@@ -37,11 +37,21 @@ thread keeps RTFx independent of the host's core count); the value is recorded i
 There is no batched API: rows are processed serially. Synthesis is deterministic (the nano decoder's
 noise excitation is seeded inside the package).
 
+Streaming (TTFA probe only). `Synthesizer.synthesize_stream` (sanotts >= 0.5.1) runs the utterance-global
+steps over the whole text (G2P, durations, the acoustic token stage, the decoder noise draw), then the
+local stages chunk by chunk (for heart / heart-nano the acoustic frame stage and the decoder, for amy the
+decoder) on windows widened by their receptive field, so the chunks concatenate to `synthesize()`'s audio
+(to float32 rounding; the package tests this). The first chunk is 8 frames, about 64 ms of audio from
+heart / heart-nano and 93 ms from amy; the pre-chunk work and the failed whole-text attempt of a too-long
+text are inside the timed call. The eval loop below keeps calling `synthesize()`, so the scored audio is
+the non-streamed rendering.
+
 Stage 2 (`transformers/transcribe.py`) fills `pred_text` with Qwen3-ASR, and stage 4
 (`normalizer.eval_utils.score_results`) computes WER + RTFx (no stage 3 SIM: fixed voice).
 """
 
 import argparse
+import itertools
 import os
 import re
 import time
@@ -173,6 +183,42 @@ class Voice:
         yield from self._render(left)
         yield from self._render(right)
 
+    def _try_stream(self, text):
+        """A chunk iterator for `text`, or None when it exceeds the voice's window.
+
+        The window check is in the front end, which runs before the first chunk, so pulling the first
+        chunk is what raises; a too_long after audio has been produced would be a package bug.
+        """
+        chunks = self.synth.synthesize_stream(text)
+        try:
+            first = next(chunks)
+        except StopIteration as exc:
+            raise RuntimeError(f"sanotts produced no audio for {text[:80]!r}") from exc
+        except self._too_long as exc:
+            if getattr(exc, "kind", None) != "too_long":
+                raise
+            return None
+        return itertools.chain([first], chunks)
+
+    def _render_stream(self, text):
+        """`_render`, streaming: chunks of one sentence, halving it until each piece fits the window."""
+        chunks = self._try_stream(text)
+        if chunks is not None:
+            yield from chunks
+            return
+        left, right = halve(text)
+        yield from self._render_stream(left)
+        yield from self._render_stream(right)
+
+    def stream(self, text):
+        """`pieces`, streaming: the same whole-text-first fallback, yielding decoder chunks as they come."""
+        chunks = self._try_stream(text)
+        if chunks is not None:
+            yield from chunks
+            return
+        for sentence in split_sentences(text):
+            yield from self._render_stream(sentence)
+
     def pieces(self, text, stats=None):
         """Yield audio pieces in order. The whole text first; sentences/halves only if it is too long.
 
@@ -208,10 +254,12 @@ def main(args):
         raise RuntimeError(f"could not cap NumPy's BLAS pool at {args.threads} thread(s): {blas_pools}")
     print(f"BLAS pools: {blas_pools}")
 
+    import sanotts
+    sanotts_version = sanotts.__version__
     voice = Voice(args.model_id, args.voice, args.revision)
     sample_rate = voice.sample_rate
     print(f"Loaded sanoTTS ({args.model_id}@{args.revision[:7]}, voice={args.voice} from {voice.voice_dir}, "
-          f"{sample_rate} Hz, BLAS threads={args.threads}); "
+          f"{sample_rate} Hz, BLAS threads={args.threads}, sanotts {sanotts_version}); "
           f"TTS model size: {voice.parameters / 1e9:.6f}B parameters")
 
     def synth_one(text):
@@ -224,20 +272,18 @@ def main(args):
         return audio, elapsed, stats
 
     def synth_one_streaming(text, early_stop=False):
-        """TTFA probe only: the same code path, timestamping the first piece of audio.
-
-        Returns (audio_1d, first_piece_ts, n_pieces). A text that fits the window is one piece, so first
-        audio is last audio; only too-long texts arrive in several pieces.
-        """
+        """TTFA probe only: `Synthesizer.synthesize_stream` through the same fallback, timestamping the
+        first chunk. The utterance-global steps run over the whole text before that chunk, so their cost
+        is included. Returns (audio_1d, first_chunk_ts, n_chunks)."""
         first, parts = None, []
-        for part in voice.pieces(text):
+        for part in voice.stream(text):
             parts.append(part)
             if first is None:
                 first = time.perf_counter()
                 if early_stop:
                     break
         if not parts:
-            return np.zeros(1, dtype=np.float32), None, 0
+            raise RuntimeError(f"no audio for {text[:80]!r}")
         return np.concatenate(parts), first, len(parts)
 
     # Layout: results/<model_safe>/{MODEL_<safe>_DATASET_<dsid><suffix>.jsonl, <dsid><suffix>/output_<id>.wav}.
@@ -252,11 +298,11 @@ def main(args):
     if args.ttfa_probe != 0:
         # Imported here: ttfa_probe.py is injected only by submit_ttfa_jobs.sh.
         from ttfa_probe import run_probe, sample_indices
-        piece_counts = []
+        chunk_counts = []
 
         def _ttfa_gen(job, early_stop):
-            audio, first, n_pieces = synth_one_streaming(job["text"], early_stop)
-            piece_counts.append(n_pieces)
+            audio, first, n_chunks = synth_one_streaming(job["text"], early_stop)
+            chunk_counts.append(n_chunks)
             return audio, sample_rate, first
 
         run_probe(
@@ -267,8 +313,10 @@ def main(args):
             out_dir=model_dir, mode_suffix=voice.suffix, n=args.ttfa_probe,
             extra={"device": "cpu", "runtime": "numpy (sanotts)", "voice": args.voice,
                    "revision": args.revision, "threads": args.threads,
-                   "blas": blas_pools,
-                   "segments_per_utterance": piece_counts},
+                   "blas": blas_pools, "sanotts": sanotts_version,
+                   "streaming_api": "Synthesizer.synthesize_stream",
+                   # chunks yielded per row; with early stop, 1 (only the first chunk is pulled)
+                   "chunks_per_utterance": chunk_counts},
         )
         return
 

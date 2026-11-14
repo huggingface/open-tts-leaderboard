@@ -6,7 +6,7 @@
 # (seconds). The voice weights are downloaded by run_eval.py from the model repo at the revision
 # pinned there.
 GEN_IMAGE="${GEN_IMAGE:-python:3.12-slim}"
-SANOTTS_VERSION="0.5.0"   # https://pypi.org/project/sanotts/0.5.0/
+SANOTTS_VERSION="0.5.1"   # https://pypi.org/project/sanotts/0.5.1/ (adds Synthesizer.synthesize_stream)
 # Every package pinned (the versions the submitted local run used), so eval and TTFA jobs on different days
 # install the same numerics.
 GEN_PIP_DEPS="${GEN_PIP_DEPS:-sanotts==${SANOTTS_VERSION} numpy==2.5.4 threadpoolctl==3.8.0 datasets==3.6.0 \
