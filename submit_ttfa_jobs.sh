@@ -138,6 +138,7 @@ TTFA_TARGETS=(
     "index-tts|index-tts|bezzam/evals-indextts|IndexTeam/IndexTTS-2.5|--language=${TTFA_LANG}"
     "inflect-nano-v1|inflect-nano|bezzam/evals-inflect|owensong/Inflect-Nano-v1|"
     "inflect-micro-v2|inflect-v2|bezzam/evals-inflect-v2|owensong/Inflect-Micro-v2|"
+    "inflect-mini-v3|inflect-v3|${INFLECT_V3_SPACE:-bezzam/evals-inflect-v3}|owensong/Inflect-Mini-v3|"
     "inflect-nano-v2|inflect-v2|bezzam/evals-inflect-v2|owensong/Inflect-Nano-v2|"
     "kokoro|kokoro|bezzam/evals-kokoro|hexgrad/Kokoro-82M|"
     # GPU only: liquid-audio hard-codes its detokenizer to CUDA (audiocpp-lfm2-audio below covers CPU).
@@ -244,7 +245,27 @@ if ${PHONON_SELECTED}; then
 fi
 
 # Backends whose run_eval.py has no --voice_clone flag at all; passing one would be an error.
-NO_CLONE_FLAG="inflect-nano inflect-v2 kokoro lfm2-audio lfm3-audio magpie-tts paradee paradee-v1.3 phonon photon pivo qwen3tts qwen3tts-fast supertonic vibevoice_realtime voxtral-tts woof"
+# One per line so additions are each a single-line diff and merge cleanly with other open PRs.
+NO_CLONE_FLAG=(
+    inflect-nano
+    inflect-v2
+    inflect-v3
+    kokoro
+    lfm2-audio
+    lfm3-audio
+    magpie-tts
+    paradee
+    paradee-v1.3
+    phonon
+    photon
+    pivo
+    qwen3tts
+    qwen3tts-fast
+    supertonic
+    vibevoice_realtime
+    voxtral-tts
+    woof
+)
 
 # run_eval.py writes to its own output roots (outside Git, mode 0700) and names the sidecar itself,
 # so Phonon skips the generic run/rename/copy below; `preamble` is submit_one's CPU thread cap.
@@ -312,7 +333,7 @@ submit_one() {
     # Every backend takes --device (run_eval_utils.add_common_args); HTTP clients (voxtral-tts,
     # higgs) accept and ignore it, since their GPU belongs to the server process.
     local device_flag="--device=${TTFA_DEVICE}"
-    [[ " ${NO_CLONE_FLAG} " == *" ${backend} "* ]] || \
+    [[ " ${NO_CLONE_FLAG[*]} " == *" ${backend} "* ]] || \
         clone_flag=$([[ "${VOICE_CLONE}" == "true" ]] && echo "--voice_clone" || echo "--no-voice_clone")
 
     # HTTP-client backends start their own inference server first, as their generate_stage does.
