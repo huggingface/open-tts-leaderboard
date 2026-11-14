@@ -62,7 +62,7 @@ declare -A TRANSFORMERS_LANGUAGES=(
     # The 10 speech-output languages of the model card.
     ["Qwen/Qwen3-Omni-30B-A3B-Instruct"]="en zh fr de ru it es pt ja ko"
     # run_eval.py's SEAMLESS_LANGUAGE_CODES (speech output) that some dataset below has.
-    ["facebook/seamless-m4t-v2-large"]="en zh ja ko fr de es it pt ru nl pl cs ro fi tr ar hi id th vi"
+    ["facebook/seamless-m4t-v2-large"]="en zh ja ko fr de es it pt ru nl pl cs ro fi tr ar hi id th vi fa"
 )
 supports_language() {
     [[ " ${TRANSFORMERS_LANGUAGES[${MODEL_ID}]:-${TRANSFORMERS_DEFAULT_LANGUAGES}} " == *" $1 "* ]]
@@ -104,6 +104,7 @@ DATASET_CONFIGS=(
     "tts id id ${MINIMAX_EVAL_PATH}"
     "tts th th ${MINIMAX_EVAL_PATH}"
     "tts vi vi ${MINIMAX_EVAL_PATH}"
+    "tts fa fa ${NEYSHEKAR_EVAL_PATH}"
 )
 
 # ── Models: "model_id batch_size max_new_tokens" (max_new_tokens optional; CLI args override) ──

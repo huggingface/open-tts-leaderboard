@@ -40,6 +40,8 @@ DEFAULT_DATASET_PATH="${DATASET_PATH:-${DATASET_NAMESPACE}/seed_tts_eval}"
 CV3_EVAL_PATH="${CV3_EVAL_PATH:-${DATASET_NAMESPACE}/cv3_eval}"
 # MiniMax is CC BY-SA 4.0, so everyone uses the one public copy (scripts/prepare_minimax_eval.py).
 MINIMAX_EVAL_PATH="${MINIMAX_EVAL_PATH:-hf-audio/minimax_eval}"
+# Neyshekar (Persian) is CC0, so everyone uses the one public copy (scripts/prepare_neyshekar_eval.py).
+NEYSHEKAR_EVAL_PATH="${NEYSHEKAR_EVAL_PATH:-hf-audio/neyshekar_eval}"
 ORG_NAME="${ORG_NAME:-}"
 # Stage-1 (generation) flavor. IMPORTANT: keep this the SAME (h200) for EVERY backend — RTFx is
 # measured on the generation stage, so a uniform GPU is required for RTFx to be comparable across
@@ -187,7 +189,7 @@ _is_transient_job_failure() {
 # Output is tee'd, not buffered, so the chain log still streams `hf jobs run`'s live job logs.
 run_stage() {
     local stage_fn="$1" attempt=1 delay="${STAGE_RETRY_SLEEP}" rc out
-    out="$(mktemp "${TMPDIR:-/tmp}/tts_stage_XXXXXX.log")"
+    out="$(mktemp "${TMPDIR:-/tmp}/tts_stage_XXXXXX")"   # Xs must be last: BSD/macOS mktemp keeps a ".log" suffix literal
     while :; do
         "${stage_fn}" 2>&1 | tee "${out}"
         rc=${PIPESTATUS[0]}
