@@ -232,10 +232,18 @@ TTFA_TARGETS=(
     # --threads=1 (not the cgroup quota): the model card's setting and the fastest (see pivo/submit_jobs.sh).
     # Timestamps the first 10 ms frame of PiVo's own iter_audio; the g2p_en fallback is inside the clock.
     "pivo|pivo|bezzam/evals-pivo|empero-ai/PiVo-1.4M|--voice=Pi --threads=1"
+    # NumPy CPU only (run_eval.py refuses a GPU device):  TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh sanotts
+    # No Space: python:3.12-slim + pip install from sanotts/job_image.sh. One target per English voice;
+    # Whole-utterance synthesis (streaming: false) except the too-long fallback; --threads=1 as in the eval.
+    "sanotts-heart|sanotts||ampixa/sanoTTS|--voice=heart --threads=1"
+    "sanotts-amy|sanotts||ampixa/sanoTTS|--voice=amy --threads=1"
+    "sanotts-heart-nano|sanotts||ampixa/sanoTTS|--voice=heart-nano --threads=1"
     # HTTP CLIENTS of an inference server the job starts itself (see the preamble in submit_one);
     # --server_pid makes a dead server fail the wait immediately.
     "voxtral-tts|voxtral-tts|bezzam/evals-voxtral|mistralai/Voxtral-4B-TTS-2603|--base_url=http://localhost:${VLLM_PORT} --server_pid=\${SERVER_PID}"
     "higgs|higgs|bezzam/evals-higgs|bosonai/higgs-tts-3-4b|--host=127.0.0.1 --port=${SGLANG_PORT}"
+    # Streams one chunk per passage; CUDA runs the WebGPU bundle, TTFA_DEVICE=cpu the LiteRT bundle (both in the image).
+    "scyllasband|scyllasband|${SCYLLASBAND_SPACE:-spybyscript/evals-scyllasband}|spybyscript/scyllasband|"
 )
 if ${PHONON_SELECTED}; then
     TTFA_TARGETS+=(
@@ -245,7 +253,6 @@ if ${PHONON_SELECTED}; then
 fi
 
 # Backends whose run_eval.py has no --voice_clone flag at all; passing one would be an error.
-# One per line so additions are each a single-line diff and merge cleanly with other open PRs.
 NO_CLONE_FLAG=(
     inflect-nano
     inflect-v2
@@ -261,6 +268,8 @@ NO_CLONE_FLAG=(
     pivo
     qwen3tts
     qwen3tts-fast
+    scyllasband
+    sanotts
     supertonic
     vibevoice_realtime
     voxtral-tts
