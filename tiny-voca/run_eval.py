@@ -150,12 +150,12 @@ if __name__ == "__main__":
                         help="Where to materialise the model repo as real files.")
     parser.add_argument("--voice", type=str, default=DEFAULT_VOICE,
                         help=f"One of {list(VOICES)}. {DEFAULT_VOICE} is the default row.")
-    parser.add_argument("--device", type=str, default="cpu",
-                        help="tiny-voca is CPU-only; this must be 'cpu'.")
     parser.add_argument("--threads", type=int, default=1,
                         help="torch intra-op threads (default 1 for RTFx independent of host cores).")
     add_common_args(parser)
-    parser.set_defaults(seed=0)   # speak_text's default seed
+    # ``--device`` comes from ``add_common_args``; override the default to cpu since tiny-voca is
+    # CPU-only (``main`` refuses a GPU device).
+    parser.set_defaults(seed=0, device="cpu")
 
     args = parser.parse_args()
 
