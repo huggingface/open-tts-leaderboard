@@ -139,6 +139,9 @@ TTFA_TARGETS=(
     "inflect-nano-v1|inflect-nano|bezzam/evals-inflect|owensong/Inflect-Nano-v1|"
     "inflect-micro-v2|inflect-v2|bezzam/evals-inflect-v2|owensong/Inflect-Micro-v2|"
     "inflect-mini-v3|inflect-v3|${INFLECT_V3_SPACE:-bezzam/evals-inflect-v3}|owensong/Inflect-Mini-v3|"
+    "inflect-micro-v3|inflect-v3|${INFLECT_V3_SPACE:-bezzam/evals-inflect-v3}|owensong/Inflect-Micro-v3|"
+    # Atom is CPU-only (its runtime sets CUDA_VISIBLE_DEVICES=''); probed with TTFA_DEVICE=cpu.
+    "inflect-atom-v3|inflect-v3|${INFLECT_V3_SPACE:-bezzam/evals-inflect-v3}|owensong/Inflect-Atom-v3|"
     "inflect-nano-v2|inflect-v2|bezzam/evals-inflect-v2|owensong/Inflect-Nano-v2|"
     "kokoro|kokoro|bezzam/evals-kokoro|hexgrad/Kokoro-82M|"
     # GPU only: liquid-audio hard-codes its detokenizer to CUDA (audiocpp-lfm2-audio below covers CPU).
