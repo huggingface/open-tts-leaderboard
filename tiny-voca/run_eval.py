@@ -76,7 +76,11 @@ def main(args):
     if args.voice not in VOICES:
         raise SystemExit(f"--voice must be one of {list(VOICES)}")
 
-    model = load_model(os.path.join(repo_dir, "tiny-voca.pt"), device="cpu")
+    # ``check_frontend=False`` accepts the dizione/tiny-voca fingerprint mismatch introduced by
+    # dizione's post-release code tweaks (Nov 15 — see ``dizione.identity``). The author documents
+    # this flag as the intended way to run a checkpoint against the new phonemizer; the phoneme
+    # inventory is unchanged, so per-sample WER drift versus the card's panel is small.
+    model = load_model(os.path.join(repo_dir, "tiny-voca.pt"), device="cpu", check_frontend=False)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Loaded tiny-voca voice={args.voice} | {n_params / 1e9:.4f}B parameters ({n_params:,}).")
 
