@@ -13,12 +13,14 @@ TINY_VOCA_REV="${TINY_VOCA_REV:-main}"
 DIZIONE_REV="${DIZIONE_REV:-main}"
 
 # gen_setup <device> → `... &&` install snippet for the job body. CPU only: the device is not used.
-# python:3.12-slim ships without git, so apt-install it first — dizione and tiny-voca are
-# GitHub-only (no PyPI release yet). Then torch from the CPU wheel index (so +cpu is resolvable),
-# and the rest from PyPI (so --index-url doesn't apply to packages that only live there).
+# python:3.12-slim ships without git or espeak-ng; the job apt-installs both. dizione and tiny-voca
+# are GitHub-only (no PyPI release yet), and dizione falls back to the espeak-ng CLI for words its
+# built-in lexicon doesn't cover ("Install espeak-ng on the cloud machine..." otherwise). Then torch
+# from the CPU wheel index (so +cpu is resolvable), and the rest from PyPI (so --index-url doesn't
+# apply to packages that only live there).
 gen_setup() {
     cat <<INSTALL
-apt-get update -qq && apt-get install -y --no-install-recommends git >/dev/null &&
+apt-get update -qq && apt-get install -y --no-install-recommends git espeak-ng >/dev/null &&
 pip install --no-cache-dir -q --index-url https://download.pytorch.org/whl/cpu torch==2.8.0+cpu &&
 pip install --no-cache-dir -q \
     numpy==2.4.2 soundfile==0.13.1 datasets==3.6.0 tqdm==4.70.1 huggingface_hub==0.36.2 \
