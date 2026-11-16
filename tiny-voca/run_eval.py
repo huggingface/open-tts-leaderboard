@@ -100,7 +100,10 @@ def main(args):
             audio = np.zeros(SAMPLE_RATE // 10, dtype=np.float32)
         return audio, time.perf_counter() - start
 
-    paths = output_paths(args)
+    # ``MODE_SUFFIX`` picks the per-voice manifest name — the orchestrator's _wait_and_score looks for
+    # ``..._<split><MODE_SUFFIX>.jsonl`` in the bucket (see scripts/tts_jobs_common.sh).
+    mode_suffix = VOICES[args.voice]
+    paths = output_paths(args, mode_suffix)
     model_dir, dataset_dir_name, manifest_path = paths.model_dir, paths.dataset_dir_name, paths.manifest_path
 
     dataset = load_tts_dataset(args)
@@ -114,7 +117,7 @@ def main(args):
             [{"text": dataset[i][args.text_column]} for i in sample_indices(args.ttfa_probe, len(dataset))],
             model_id=args.model_id, dataset_path=args.dataset_path,
             dataset_config=args.dataset, split=args.split,
-            out_dir=model_dir, n=args.ttfa_probe,
+            out_dir=model_dir, mode_suffix=mode_suffix, n=args.ttfa_probe,
             extra={"device": args.device, "voice": args.voice, "seed": args.seed,
                    "threads": args.threads, "revision": args.revision},
         )
