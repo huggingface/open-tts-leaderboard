@@ -237,6 +237,11 @@ TTFA_TARGETS=(
     "sanotts-heart|sanotts||ampixa/sanoTTS|--voice=heart --threads=1"
     "sanotts-amy|sanotts||ampixa/sanoTTS|--voice=amy --threads=1"
     "sanotts-heart-nano|sanotts||ampixa/sanoTTS|--voice=heart-nano --threads=1"
+    # CPU only (run_eval.py refuses a GPU device):  TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh tiny-voca-f2
+    # No Space: python:3.12-slim + pip install from tiny-voca/job_image.sh. One target per voice;
+    # whole-utterance synthesis (no streaming API); --threads=1 as in the eval.
+    "tiny-voca-f2|tiny-voca||n4ze3m/tiny-voca|--voice=F2 --threads=1"
+    "tiny-voca-m2|tiny-voca||n4ze3m/tiny-voca|--voice=M2 --threads=1"
     # HTTP CLIENTS of an inference server the job starts itself (see the preamble in submit_one);
     # --server_pid makes a dead server fail the wait immediately.
     "voxtral-tts|voxtral-tts|bezzam/evals-voxtral|mistralai/Voxtral-4B-TTS-2603|--base_url=http://localhost:${VLLM_PORT} --server_pid=\${SERVER_PID}"
@@ -269,6 +274,7 @@ NO_CLONE_FLAG=(
     scyllasband
     sanotts
     supertonic
+    tiny-voca
     vibevoice_realtime
     voxtral-tts
     woof
