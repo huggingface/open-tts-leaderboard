@@ -9,6 +9,7 @@ The following datasets are used in the Open TTS Leaderboard:
 2. [CV3 Eval](https://github.com/QwenAudio/CV3-Eval): `en`, `zh`, `fr` (French), `es` (Spanish), `ja` (Japanese), `ko` (Korean), `it` (Italian), `de` (German), and `ru` (Russian) (`zero_shot` config, 500 samples per language).
 3. [MiniMax Multilingual](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) (`tts` config): 100 samples x 24 languages. (Thai is scored with CER; Ukrainian is not supported by ASR)
 4. [Neyshekar](https://huggingface.co/datasets/shekar-ai/Neyshekar) (`tts` config): `fa` (Persian), from its predefined test split (2,098 samples), scored with CER. A `tts_validation` config, from its validation split, is reserved for development. See the [dataset card](https://huggingface.co/datasets/hf-audio/neyshekar_eval) for how prompts and targets are paired.
+5. [Gradium TTS Hard Sentences](https://huggingface.co/datasets/gradium/tts-hard-sentences-202610) (`tts` config): `en`, `fr`, `es`, `pt` (Portuguese), and `de` (500 samples per language, text only so no voice cloning).
 
 While human preference is the ultimate decider, **arenas cannot scale to keep up with the pace of TTS releases**. To this end, we use objective metrics to evaluate models on complementary aspects of performance:
 
@@ -73,8 +74,11 @@ Unfortunately the licenses of [Seed TTS](https://github.com/BytedanceSpeech/seed
 (tts_leaderboard) git clone git@github.com:QwenAudio/CV3-Eval.git
 # -- upload to your account on HF
 (tts_leaderboard) python scripts/prepare_cv3_eval.py YOUR_USERNAME/cv3_eval
+
+# gradium eval
+(tts_leaderboard) python scripts/prepare_gradium_eval.py YOUR_USERNAME/gradium_eval
 ```
-Keep the repo names (`seed_tts_eval`, `cv3_eval`) as above, so that `DATASET_NAMESPACE=YOUR_USERNAME` points every job at your copies.
+Keep the repo names (`seed_tts_eval`, `cv3_eval`, `gradium_eval`) as above, so that `DATASET_NAMESPACE=YOUR_USERNAME` points every job at your copies.
 
 The [MiniMax](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) test set is CC BY-SA 4.0, so it is redistributed publicly as [hf-audio/minimax_eval](https://huggingface.co/datasets/hf-audio/minimax_eval) and jobs use it by default (`MINIMAX_EVAL_PATH`); no copy of your own is needed.
 
@@ -173,7 +177,7 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DATASET_NAMESPACE` | `hf-audio` | Namespace holding your private `seed_tts_eval` / `cv3_eval` copies |
+| `DATASET_NAMESPACE` | `hf-audio` | Namespace holding your private `seed_tts_eval` / `cv3_eval` / `gradium_eval` copies |
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
 | `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |

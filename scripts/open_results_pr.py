@@ -16,6 +16,7 @@ Files written (all in that dataset repo):
     minimax_voice_clone.csv   MiniMax multilingual, cloning each prompt  (WER, RTFx, SIM, UTMOS + averages)
     neyshekar.csv             Neyshekar Persian test, own/default voice (WER, RTFx)
     neyshekar_voice_clone.csv Neyshekar Persian test, cloning each prompt (WER, RTFx, SIM)
+    gradium.csv               Gradium hard sentences, own/default voice  (WER, RTFx, UTMOS + averages)
     streaming.csv             time-to-first-audio, CPU and GPU           (TTFA, RTFx at batch 1)
 
 Every file but model_info.csv also has a free-text `Note` column, filled by --note (e.g. hardware
@@ -128,6 +129,7 @@ TARGETS = {
     "minimax_voice_clone": Target("minimax_voice_clone.csv", "minimax_eval_tts_", voice_clone=True),
     "neyshekar": Target("neyshekar.csv", "neyshekar_eval_tts_", voice_clone=False, languages={"fa"}),
     "neyshekar_voice_clone": Target("neyshekar_voice_clone.csv", "neyshekar_eval_tts_", voice_clone=True, languages={"fa"}),
+    "gradium": Target("gradium.csv", "gradium_eval_tts_", voice_clone=False),
 }
 
 # streaming.csv is filled from the TTFA sidecars rather than by scoring, so it is not a Target.
