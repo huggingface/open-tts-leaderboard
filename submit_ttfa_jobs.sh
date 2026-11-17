@@ -138,6 +138,10 @@ TTFA_TARGETS=(
     "index-tts|index-tts|bezzam/evals-indextts|IndexTeam/IndexTTS-2.5|--language=${TTFA_LANG}"
     "inflect-nano-v1|inflect-nano|bezzam/evals-inflect|owensong/Inflect-Nano-v1|"
     "inflect-micro-v2|inflect-v2|bezzam/evals-inflect-v2|owensong/Inflect-Micro-v2|"
+    "inflect-mini-v3|inflect-v3|${INFLECT_V3_SPACE:-bezzam/evals-inflect-v3}|owensong/Inflect-Mini-v3|"
+    "inflect-micro-v3|inflect-v3|${INFLECT_V3_SPACE:-bezzam/evals-inflect-v3}|owensong/Inflect-Micro-v3|"
+    # Atom is CPU-only (its runtime sets CUDA_VISIBLE_DEVICES=''); probed with TTFA_DEVICE=cpu.
+    "inflect-atom-v3|inflect-v3|${INFLECT_V3_SPACE:-bezzam/evals-inflect-v3}|owensong/Inflect-Atom-v3|"
     "inflect-nano-v2|inflect-v2|bezzam/evals-inflect-v2|owensong/Inflect-Nano-v2|"
     "kokoro|kokoro|bezzam/evals-kokoro|hexgrad/Kokoro-82M|"
     # GPU only: liquid-audio hard-codes its detokenizer to CUDA (audiocpp-lfm2-audio below covers CPU).
@@ -231,10 +235,23 @@ TTFA_TARGETS=(
     # --threads=1 (not the cgroup quota): the model card's setting and the fastest (see pivo/submit_jobs.sh).
     # Timestamps the first 10 ms frame of PiVo's own iter_audio; the g2p_en fallback is inside the clock.
     "pivo|pivo|bezzam/evals-pivo|empero-ai/PiVo-1.4M|--voice=Pi --threads=1"
+    # NumPy CPU only (run_eval.py refuses a GPU device):  TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh sanotts
+    # No Space: python:3.12-slim + pip install from sanotts/job_image.sh. One target per English voice;
+    # Whole-utterance synthesis (streaming: false) except the too-long fallback; --threads=1 as in the eval.
+    "sanotts-heart|sanotts||ampixa/sanoTTS|--voice=heart --threads=1"
+    "sanotts-amy|sanotts||ampixa/sanoTTS|--voice=amy --threads=1"
+    "sanotts-heart-nano|sanotts||ampixa/sanoTTS|--voice=heart-nano --threads=1"
+    # CPU only (run_eval.py refuses a GPU device):  TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh tiny-voca-f2
+    # No Space: python:3.12-slim + pip install from tiny-voca/job_image.sh. One target per voice;
+    # whole-utterance synthesis (no streaming API); --threads=1 as in the eval.
+    "tiny-voca-f2|tiny-voca||n4ze3m/tiny-voca|--voice=F2 --threads=1"
+    "tiny-voca-m2|tiny-voca||n4ze3m/tiny-voca|--voice=M2 --threads=1"
     # HTTP CLIENTS of an inference server the job starts itself (see the preamble in submit_one);
     # --server_pid makes a dead server fail the wait immediately.
     "voxtral-tts|voxtral-tts|bezzam/evals-voxtral|mistralai/Voxtral-4B-TTS-2603|--base_url=http://localhost:${VLLM_PORT} --server_pid=\${SERVER_PID}"
     "higgs|higgs|bezzam/evals-higgs|bosonai/higgs-tts-3-4b|--host=127.0.0.1 --port=${SGLANG_PORT}"
+    # Streams one chunk per passage; CUDA runs the WebGPU bundle, TTFA_DEVICE=cpu the LiteRT bundle (both in the image).
+    "scyllasband|scyllasband|${SCYLLASBAND_SPACE:-spybyscript/evals-scyllasband}|spybyscript/scyllasband|"
 )
 if ${PHONON_SELECTED}; then
     TTFA_TARGETS+=(
@@ -244,7 +261,29 @@ if ${PHONON_SELECTED}; then
 fi
 
 # Backends whose run_eval.py has no --voice_clone flag at all; passing one would be an error.
-NO_CLONE_FLAG="inflect-nano inflect-v2 kokoro lfm2-audio lfm3-audio magpie-tts paradee paradee-v1.3 phonon photon pivo qwen3tts qwen3tts-fast supertonic vibevoice_realtime voxtral-tts woof"
+NO_CLONE_FLAG=(
+    inflect-nano
+    inflect-v2
+    inflect-v3
+    kokoro
+    lfm2-audio
+    lfm3-audio
+    magpie-tts
+    paradee
+    paradee-v1.3
+    phonon
+    photon
+    pivo
+    qwen3tts
+    qwen3tts-fast
+    scyllasband
+    sanotts
+    supertonic
+    tiny-voca
+    vibevoice_realtime
+    voxtral-tts
+    woof
+)
 
 # run_eval.py writes to its own output roots (outside Git, mode 0700) and names the sidecar itself,
 # so Phonon skips the generic run/rename/copy below; `preamble` is submit_one's CPU thread cap.
@@ -312,7 +351,7 @@ submit_one() {
     # Every backend takes --device (run_eval_utils.add_common_args); HTTP clients (voxtral-tts,
     # higgs) accept and ignore it, since their GPU belongs to the server process.
     local device_flag="--device=${TTFA_DEVICE}"
-    [[ " ${NO_CLONE_FLAG} " == *" ${backend} "* ]] || \
+    [[ " ${NO_CLONE_FLAG[*]} " == *" ${backend} "* ]] || \
         clone_flag=$([[ "${VOICE_CLONE}" == "true" ]] && echo "--voice_clone" || echo "--no-voice_clone")
 
     # HTTP-client backends start their own inference server first, as their generate_stage does.
