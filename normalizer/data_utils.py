@@ -5,6 +5,7 @@ from normalizer import EnglishTextNormalizer, BasicMultilingualTextNormalizer
 from normalizer.persian import PersianTextNormalizer
 from normalizer.hindi import normalize_hi_numbers_after, normalize_hi_numbers_before
 from normalizer.spoken_forms import expand_written_forms, fold_spoken_forms, number_words
+from normalizer.times_ordinals import expand_times_and_ordinals, fold_time_readings
 
 # Decimal numbers, in the languages whose transcripts read them in words ("drei Komma sieben", "cinco punto ocho",
 # "drie en een half procent"): the word for the separator. The separator is "," (and "." in Spanish, whose
@@ -81,6 +82,8 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
         elif lang == "hi":
             s = normalize_hi_numbers_before(s)
         elif lang is not None:
+            # Times, ordinals and Roman numerals first: "10:00 Uhr", "7 h 19", "1er", "XVe", "siglo IX".
+            s = expand_times_and_ordinals(s, lang)
             if lang in DECIMAL_WORDS:
                 s = self._normalize_decimals(s, lang)
             # Units, symbols and abbreviations to their spoken words, before symbols and dots are stripped.
@@ -93,6 +96,7 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
             s = fold_spoken_forms(s, lang)
             if lang in DECIMAL_WORDS:
                 s = self._fold_decimal_readings(s, lang)
+            s = fold_time_readings(s, lang)
         return s
 
 
