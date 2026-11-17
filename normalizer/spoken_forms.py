@@ -80,7 +80,7 @@ PLUS_WORDS = {"de": {"plus"}, "es": {"más", "mas"}, "ru": {"плюс"}}
 
 
 @lru_cache(maxsize=None)
-def _number_words(lang):
+def number_words(lang):
     """The words num2words uses for the numbers 0-1000 (and the powers of a thousand) in `lang`."""
     import num2words
     words = set()
@@ -123,7 +123,7 @@ def expand_written_forms(text: str, lang: str) -> str:
         def unit(m):
             number, written = m.group(1), re.sub(r"\s", "", m.group(2))
             last = number.strip().lower().split("-")[-1]   # "sixty-four"
-            if not number[0].isdigit() and (written in DIGIT_ONLY or last not in _number_words(lang)):
+            if not number[0].isdigit() and (written in DIGIT_ONLY or last not in number_words(lang)):
                 return m.group(0)
             return f"{number} {units[written]} "
 
@@ -134,7 +134,7 @@ def expand_written_forms(text: str, lang: str) -> str:
 def _is_number(token, lang):
     if lang == "en":
         return bool(re.match(r"^[+-]?\d", token))
-    return token.split("-")[0] in _number_words(lang)
+    return token.split("-")[0] in number_words(lang)
 
 
 def fold_spoken_forms(text: str, lang: str) -> str:
