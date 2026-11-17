@@ -4,6 +4,7 @@ import num2words
 from normalizer import EnglishTextNormalizer, BasicMultilingualTextNormalizer
 from normalizer.persian import PersianTextNormalizer
 from normalizer.hindi import normalize_hi_numbers_after, normalize_hi_numbers_before
+from normalizer.spoken_forms import expand_written_forms, fold_spoken_forms
 
 
 class MultilingualNormalizer(BasicMultilingualTextNormalizer):
@@ -43,11 +44,15 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
             s = self._normalize_vi_numbers(s)
         elif lang == "hi":
             s = normalize_hi_numbers_before(s)
+        elif lang is not None:
+            # Units, symbols and abbreviations to their spoken words, before symbols and dots are stripped.
+            s = expand_written_forms(s, lang)
         s = super().__call__(s)
         if lang == "hi":
             s = normalize_hi_numbers_after(s)
         elif lang is not None:
             s = self._normalize_numbers(s, lang)
+            s = fold_spoken_forms(s, lang)
         return s
 
 
