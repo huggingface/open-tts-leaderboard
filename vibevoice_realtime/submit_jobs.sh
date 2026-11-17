@@ -14,7 +14,7 @@ RUN_EVAL_INJECT="$(inject_run_eval)"
 declare -A VIBEVOICE_VOICES=( [en]=en-Carter_man [de]=de-Spk0_man  [fr]=fr-Spk0_man [it]=it-Spk1_man \
                               [ja]=jp-Spk0_man  [ko]=kr-Spk1_man  [nl]=nl-Spk0_man [pl]=pl-Spk0_man \
                               [pt]=pt-Spk1_man  [es]=sp-Spk1_man )
-supports_language() { [[ -n "${VIBEVOICE_VOICES[$1]:-}" ]]; }
+SUPPORTED_LANGUAGES="en de fr it ja ko nl pl pt es"   # the VIBEVOICE_VOICES keys
 # Setting VIBEVOICE_SPEAKER forces one preset for every combo — only sensible for a single-language run.
 VIBEVOICE_SPEAKER="${VIBEVOICE_SPEAKER:-}"
 
@@ -42,29 +42,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ko ko ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts ja ja ${MINIMAX_EVAL_PATH}"
-    "tts ko ko ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts pt pt ${MINIMAX_EVAL_PATH}"
-    "tts nl nl ${MINIMAX_EVAL_PATH}"
-    "tts pl pl ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id batch_size" (CLI args override; speaker comes from VIBEVOICE_VOICES) ──
 MODEL_CONFIGS=(

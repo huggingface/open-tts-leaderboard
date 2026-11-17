@@ -9,7 +9,7 @@ TTS_SPACE="${TTS_SPACE:-mrfakename/evals-echo-tts}"   # stage-1 image (Dockerfil
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
 RUN_EVAL_INJECT="$(inject_run_eval)"
 SUPPORTS_VOICE_CLONE=true   # VOICE_CLONE=true clones each sample's reference speaker + scores SIM
-supports_language() { [[ "$1" == en ]]; }   # English only
+SUPPORTED_LANGUAGES="en"   # English only
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id". ──
 generate_stage() {
@@ -30,15 +30,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment to pick) ────────
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
-# ZTTS2-Eval Mini: supports_language keeps the model's languages.
-DATASET_CONFIGS+=("${ZTTS2_MINI_DATASET_CONFIGS[@]}")
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=(

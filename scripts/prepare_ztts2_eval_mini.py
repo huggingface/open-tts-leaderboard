@@ -17,9 +17,19 @@ The In-The-Wild held-out target recordings are not included.
 Pushed **public** by default: FLEURS-R is CC-BY-4.0 and VoxBlink2 CC-BY-NC-SA-4.0, both of which allow
 redistribution with attribution (see CARD_TEXT).
 
+Prerequisite — get the checkout and its prompt wavs:
+```
+# 1. Clone the benchmark repo somewhere OUTSIDE this one (path becomes --ztts2-root).
+git clone https://github.com/Zyphra/ZTTS2-Eval.git
+
+# 2. Fetch the prompt wavs (gated `Zyphra/ZTTS2-Eval` audio repo — accept its terms on the Hub
+#    and `huggingface-cli login` first). This populates data/clean_mini/ and data/in-the-wild_mini/.
+cd ZTTS2-Eval && python scripts/prep/download_data.py && cd -
+```
+
 Usage:
 ```
-python scripts/prepare_ztts2_eval_mini.py [repo_id] --ztts2-root ../ZTTS2-Eval [--configs clean in_the_wild] [--dry-run] [--private]
+python scripts/prepare_ztts2_eval_mini.py [repo_id] --ztts2-root <PATH>/ZTTS2-Eval [--configs clean in_the_wild] [--dry-run] [--private]
 ```
 """
 
@@ -39,7 +49,7 @@ sys.path.insert(0, str(REPO_ROOT))  # so `from normalizer import ...` resolves r
 
 from normalizer.ztts2 import PANEL_LANGS, WEIGHTS_PATH  # noqa: E402
 
-DEFAULT_REPO_ID = "Zyphra/ztts2_eval_mini"
+DEFAULT_REPO_ID = "hf-audio/ztts2_eval_mini"
 # Config -> panel dir under the checkout's data/.
 PANEL_DIRS = {"clean": "clean_mini", "in_the_wild": "in-the-wild_mini"}
 FEATURES = Features({

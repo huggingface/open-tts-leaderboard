@@ -29,7 +29,7 @@ PANEL_LANGS = {
 WEIGHTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ztts2_eval_mini_weights.json")
 ASR_PROFILE = "ztts2"   # `asr_profile` that transcribe.py writes on rows it transcribed with ZTTS2 routing
 _PANEL_RE = re.compile(r"ztts2_eval_mini_(clean|in_the_wild)_([a-z]+)")
-CHAR_LANGS = {"zh", "ja", "ko", "th"}
+CHAR_LANGS = {"zh", "ja", "ko", "th", "fa"}
 # ZTTS2-Eval's num2words 0.5.14 converters (nb via `no`); pinned because newer num2words adds e.g. hi,
 # which ZTTS2-Eval leaves in digits.
 NUM2WORDS_LANGS = frozenset({"ar", "ca", "cs", "da", "de", "en", "es", "fa", "fi", "fr", "he", "hu", "id", "it",

@@ -40,7 +40,7 @@ paradee_voice() {
         es) echo em_alex ;;
     esac
 }
-supports_language() { [[ -n "$(paradee_voice "$1")" ]]; }
+SUPPORTED_LANGUAGES="en hi fr es"   # the languages paradee_voice has a voice for
 # Setting PARADEE_VOICE forces one voice for every combo; only for a single-language run (e.g.
 # ONLY_LANGS=en PARADEE_VOICE=bf_isabella). run_eval.py refuses a voice of another language.
 # The results land in the same model folder, so use a separate RESULTS_BUCKET for such runs.
@@ -69,19 +69,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts hi hi ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=("sahilmahendrakar/Paradee-8M-v1.3")

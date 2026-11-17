@@ -25,8 +25,17 @@ DEFAULT_ASR_MODEL_ID = "Qwen/Qwen3-ASR-1.7B-hf"
 ZTTS2_LANGS = {"en", "zh", "de", "es", "fr", "it", "ja", "ko", "ru", "pt", "ar", "hi", "tr", "pl", "id", "th",
                "fil", "tl", "nl", "vi", "cs", "sv", "da", "fi", "el", "hu", "ro", "uk", "nb", "he", "bg", "hr",
                "sk", "ca", "ms", "fa"}
-ZTTS2_QWEN_LANGS = {"zh", "ko", "th", "vi", "hi", "fa"}          # every other language goes to Whisper
-ZTTS2_QWEN_HINT_LANGS = {"en", "zh", "de", "es", "fr", "it", "ja", "ko", "ru"}  # others: Qwen auto-detects
+# Divergence from ZTTS2-Eval's own routing: we route to Qwen3-ASR every ZTTS2 language that already
+# has Qwen3-ASR coverage on this leaderboard's other datasets (Seed-TTS / CV3 / MiniMax / Neyshekar),
+# so the same ASR scores a given language wherever it appears. The remaining ZTTS2 languages go to
+# Whisper. Keeping Qwen3 on exactly the languages our other panels use avoids silently mixing two
+# ASR systems' per-language accuracy, at the cost of diverging from ZTTS2-Eval's published panels.
+ZTTS2_QWEN_LANGS = {"en", "zh", "de", "es", "fr", "it", "ja", "ko", "ru", "pt", "ar", "hi", "tr", "pl",
+                    "id", "th", "nl", "vi", "cs", "fi", "el", "ro", "fa"}
+# Pass the language hint for every ZTTS2 Qwen3-routed language — matches how the leaderboard
+# profile invokes Qwen3-ASR for CV3 / MiniMax / Neyshekar (`language = args.asr_language or None`),
+# so the same (language, ASR, hint) triple scores a given language wherever it appears here.
+ZTTS2_QWEN_HINT_LANGS = ZTTS2_QWEN_LANGS
 ZTTS2_QWEN_MODEL = ("Qwen/Qwen3-ASR-1.7B-hf", "bcd2b5b7f32b480ab5790554cfa8347f246a14f3")
 ZTTS2_WHISPER_MODEL = ("openai/whisper-large-v3", "06f233fe06e710322aca913c1bc4249a0d71fce1")
 ZTTS2_WHISPER_CODE = {"fil": "tl", "nb": "no"}                    # else the code itself

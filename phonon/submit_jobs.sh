@@ -40,21 +40,6 @@ generate_stage() {
     "${job[@]}" --volume "hf://buckets/${RESULTS_BUCKET}:/results" "$TTS_IMAGE" bash -c "$command"
 }
 
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts pt pt ${MINIMAX_EVAL_PATH}"
-    "zero_shot fr fr ${CV3_EVAL_PATH}"
-    "zero_shot de de ${CV3_EVAL_PATH}"
-    "zero_shot es es ${CV3_EVAL_PATH}"
-)
-# ZTTS2-Eval Mini: supports_language keeps the model's languages.
-DATASET_CONFIGS+=("${ZTTS2_MINI_DATASET_CONFIGS[@]}")
 MODEL_CONFIGS=(
     "gradium/phonon-31m-en"
     "gradium/phonon-40m-en"

@@ -56,48 +56,8 @@ generate_stage() {
         "
 }
 
-# Fish Audio Drama 3 covers every ZTTS2-Eval Mini language (model card), so no supports_language gate.
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment to pick) ────────
-DATASET_CONFIGS=(
-    "tts en en"
-    "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot zh zh ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ko ko ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ru ru ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts zh zh ${MINIMAX_EVAL_PATH}"
-    "tts ja ja ${MINIMAX_EVAL_PATH}"
-    "tts ko ko ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts pt pt ${MINIMAX_EVAL_PATH}"
-    "tts ru ru ${MINIMAX_EVAL_PATH}"
-    "tts nl nl ${MINIMAX_EVAL_PATH}"
-    "tts pl pl ${MINIMAX_EVAL_PATH}"
-    "tts cs cs ${MINIMAX_EVAL_PATH}"
-    "tts ro ro ${MINIMAX_EVAL_PATH}"
-    "tts el el ${MINIMAX_EVAL_PATH}"
-    "tts fi fi ${MINIMAX_EVAL_PATH}"
-    "tts tr tr ${MINIMAX_EVAL_PATH}"
-    "tts ar ar ${MINIMAX_EVAL_PATH}"
-    "tts hi hi ${MINIMAX_EVAL_PATH}"
-    "tts id id ${MINIMAX_EVAL_PATH}"
-    "tts th th ${MINIMAX_EVAL_PATH}"
-    "tts vi vi ${MINIMAX_EVAL_PATH}"
-    "tts fa fa ${NEYSHEKAR_EVAL_PATH}"
-)
-# ZTTS2-Eval Mini: supports_language keeps the model's languages.
-DATASET_CONFIGS+=("${ZTTS2_MINI_DATASET_CONFIGS[@]}")
+# Fish Audio Drama 3 covers every ZTTS2-Eval Mini language (model card): every benchmark language but Cantonese (yue).
+SUPPORTED_LANGUAGES="en zh ja ko fr de es it pt ru nl pl cs ro el fi tr ar hi id th vi fa sv da hu uk nb he bg hr sk ca ms fil"
 
 # ── Models: "model_id concurrency" (CLI args override; only fishaudio/drama-3 is supported) ──
 MODEL_CONFIGS=(

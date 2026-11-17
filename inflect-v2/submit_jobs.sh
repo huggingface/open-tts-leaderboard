@@ -16,8 +16,7 @@ RUN_EVAL_INJECT="$(inject_run_eval)"
 # ── Languages this backend can select ────────────────────────────────────────
 # English-only (model cards: `language: [en]`); non-en splits are skipped rather than synthesized
 # with English phonemes, which would give a meaningless (>100%) CER.
-INFLECT_V2_LANGUAGES="en"
-supports_language() { [[ " ${INFLECT_V2_LANGUAGES} " == *" $1 "* ]]; }
+SUPPORTED_LANGUAGES="en"
 
 # ── Stage 1: TTS generation (one sample at a time — no batched API) ──────────
 # The model repo carries the inference code as well as the ~40 MB checkpoint, so run_eval.py
@@ -39,16 +38,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" ────────────────────
-# The optional 4th field points one line at a different dataset repo (default: Seed-TTS).
-# English-only model, so only the `en` splits.
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 # Nano-v2 is the same code path and image — uncomment to evaluate both in one submission.

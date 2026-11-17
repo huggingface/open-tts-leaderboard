@@ -19,7 +19,7 @@ RUN_EVAL_INJECT="$(inject_run_eval)"
 declare -A KOKORO_LANG_CODE=( [en]=a [es]=e [fr]=f [it]=i [ja]=j [zh]=z [pt]=p [hi]=h )
 declare -A KOKORO_VOICES=( [en]=af_heart [es]=ef_dora [fr]=ff_siwis [it]=if_sara \
                            [ja]=jf_alpha [zh]=zf_xiaobei [pt]=pf_dora [hi]=hf_alpha )
-supports_language() { [[ -n "${KOKORO_LANG_CODE[$1]:-}" ]]; }
+SUPPORTED_LANGUAGES="en es fr it ja zh pt hi"   # the KOKORO_LANG_CODE keys
 # Setting KOKORO_VOICE forces one voice for every combo — only safe for a single-language run,
 # since a voice whose prefix does not match the lang_code is rejected by Kokoro.
 KOKORO_VOICE="${KOKORO_VOICE:-}"
@@ -47,27 +47,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot zh zh ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts zh zh ${MINIMAX_EVAL_PATH}"
-    "tts ja ja ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts pt pt ${MINIMAX_EVAL_PATH}"
-    "tts hi hi ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=("hexgrad/Kokoro-82M")

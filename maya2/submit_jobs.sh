@@ -14,7 +14,7 @@ SUPPORTS_VOICE_CLONE=true
 MAYA_VOICE="${MAYA_VOICE:-Ahana}"
 
 # 11 Indian languages + English (model card); of the benchmarks' languages only en and hi.
-supports_language() { [[ "$1" == en || "$1" == hi ]]; }
+SUPPORTED_LANGUAGES="en hi"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id batch_size" (batch = the engine's max_seats). ──
 generate_stage() {
@@ -39,17 +39,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-# Without a 4th field the line uses DEFAULT_DATASET_PATH (hf-audio/seed_tts_eval).
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH}"
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts hi hi ${MINIMAX_EVAL_PATH}"
-)
-# ZTTS2-Eval Mini: supports_language keeps the model's languages.
-DATASET_CONFIGS+=("${ZTTS2_MINI_DATASET_CONFIGS[@]}")
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
 MODEL_CONFIGS=(
