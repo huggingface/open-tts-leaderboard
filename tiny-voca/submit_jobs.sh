@@ -33,7 +33,7 @@ resolve_mode() {
 }
 
 # English only (American English phonemizer).
-supports_language() { [[ "$1" == "en" ]]; }
+SUPPORTED_LANGUAGES="en"
 
 # ── Stage 1: TTS generation ─────────────────────────────────────────────────
 # CPU on the host CPU of the h200 flavor; --device=cpu is enforced inside run_eval.py.
@@ -59,13 +59,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" ────────────────────
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id voice" (CLI args override) ────────────────────────────
 MODEL_CONFIGS=(

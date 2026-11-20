@@ -44,33 +44,7 @@ generate_stage() {
 # ── Languages this backend can actually select ───────────────────────────────
 # An unmapped language silently falls back to the first tokenizer in run_eval.py, so gate the combos.
 # These are the 9 languages the checkpoint ships a tokenizer for (no Korean).
-MAGPIE_LANGUAGES="en de es fr it vi zh ja hi"
-supports_language() { [[ " ${MAGPIE_LANGUAGES} " == *" $1 "* ]]; }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-# asr_language is the language hint for both the TTS model and Qwen3-ASR, so it must be a real
-# language code (`zh_hard` pairs with `zh`).
-DATASET_CONFIGS=(
-    "tts en en"
-    "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot zh zh ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts zh zh ${MINIMAX_EVAL_PATH}"
-    "tts ja ja ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts hi hi ${MINIMAX_EVAL_PATH}"
-    "tts vi vi ${MINIMAX_EVAL_PATH}"
-)
+SUPPORTED_LANGUAGES="en de es fr it vi zh ja hi"
 
 # ── Models: "model_id batch_size speaker" (CLI args override) ────────────────
 # Baked speakers: John, Sofia, Aria, Jason, Leo (no zero-shot cloning).

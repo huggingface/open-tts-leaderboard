@@ -3,22 +3,61 @@ ASR transcription for the Open TTS Leaderboard (stage 2).
 
 Fills `pred_text` in a stage-1 manifest with Qwen3-ASR, in place and resumably. The ASR call
 mirrors `transcribe()` in `transformers/run_eval.py`.
+
+ZTTS2-Eval Mini panel manifests use `--asr_profile ztts2` instead: ZTTS2-Eval's ASR, i.e. Whisper-large-v3 or
+Qwen3-ASR routed per language as ZTTS2-Eval routes them, at pinned revisions, with its repetition-loop guard. Each
+row it transcribes is stamped with `asr_profile` / `asr_model`.
 """
 
 import argparse
 import json
 import os
+import zlib
 
 import torch
 from transformers.audio_utils import load_audio
 
-from transformers import AutoModelForMultimodalLM, AutoProcessor
+from transformers import AutoModelForMultimodalLM, AutoProcessor, WhisperForConditionalGeneration
 
 DEFAULT_ASR_MODEL_ID = "Qwen/Qwen3-ASR-1.7B-hf"
+
+# ── ZTTS2-Eval profile: ZTTS2-Eval's ASR (utils/benchmark.py, scripts/score/run_wer.py) ───────────
+ZTTS2_LANGS = {"en", "zh", "de", "es", "fr", "it", "ja", "ko", "ru", "pt", "ar", "hi", "tr", "pl", "id", "th",
+               "fil", "tl", "nl", "vi", "cs", "sv", "da", "fi", "el", "hu", "ro", "uk", "nb", "he", "bg", "hr",
+               "sk", "ca", "ms", "fa"}
+# Divergence from ZTTS2-Eval's own routing: we route to Qwen3-ASR every ZTTS2 language that already
+# has Qwen3-ASR coverage on this leaderboard's other datasets (Seed-TTS / CV3 / MiniMax / Neyshekar),
+# so the same ASR scores a given language wherever it appears. The remaining ZTTS2 languages go to
+# Whisper. Keeping Qwen3 on exactly the languages our other panels use avoids silently mixing two
+# ASR systems' per-language accuracy, at the cost of diverging from ZTTS2-Eval's published panels.
+ZTTS2_QWEN_LANGS = {"en", "zh", "de", "es", "fr", "it", "ja", "ko", "ru", "pt", "ar", "hi", "tr", "pl",
+                    "id", "th", "nl", "vi", "cs", "fi", "el", "ro", "fa"}
+# Pass the language hint for every ZTTS2 Qwen3-routed language — matches how the leaderboard
+# profile invokes Qwen3-ASR for CV3 / MiniMax / Neyshekar (`language = args.asr_language or None`),
+# so the same (language, ASR, hint) triple scores a given language wherever it appears here.
+ZTTS2_QWEN_HINT_LANGS = ZTTS2_QWEN_LANGS
+ZTTS2_QWEN_MODEL = ("Qwen/Qwen3-ASR-1.7B-hf", "bcd2b5b7f32b480ab5790554cfa8347f246a14f3")
+ZTTS2_WHISPER_MODEL = ("openai/whisper-large-v3", "06f233fe06e710322aca913c1bc4249a0d71fce1")
+ZTTS2_WHISPER_CODE = {"fil": "tl", "nb": "no"}                    # else the code itself
+# Whisper's 448-token decoder window minus its 4 prompt tokens (ZTTS2's vLLM greedy pass is uncapped).
+ZTTS2_MAX_NEW_TOKENS = 444
+# Repetition-loop guard: a transcript of >= 60 UTF-8 bytes compressing > 2.4x is re-decoded with this.
+ZTTS2_LOOP_MIN_BYTES = 60
+ZTTS2_LOOP_RATIO = 2.4
+ZTTS2_RETRY_KWARGS = {"repetition_penalty": 1.2, "max_new_tokens": 256}
+
+
+def _degenerate(text):
+    """A repetition loop: the transcript compresses far more than natural text (run_wer.py `_degenerate`)."""
+    b = text.encode("utf-8")
+    return len(b) >= ZTTS2_LOOP_MIN_BYTES and len(b) / max(1, len(zlib.compress(b))) > ZTTS2_LOOP_RATIO
 
 
 def main(args):
     torch_dtype = getattr(torch, args.dtype)
+    ztts2 = args.asr_profile == "ztts2"
+    if ztts2 and args.asr_language not in ZTTS2_LANGS:
+        raise ValueError(f"--asr_profile ztts2 needs a ZTTS2-Eval language code, got {args.asr_language!r}")
 
     # ── Read manifest ────────────────────────────────────────────────────────
     with open(args.manifest_path, encoding="utf-8") as f:
@@ -37,11 +76,12 @@ def main(args):
         return cand if os.path.exists(cand) else p
 
     # ── Resume: decide what's left BEFORE paying for the ASR model ───────────
-    # Only transcribe rows without a prediction (unless --overwrite). Checked before the model load
-    # so re-running a finished split is ~free.
+    # Only transcribe rows without a prediction (unless --overwrite), or, under the ztts2 profile, rows
+    # transcribed by another one. Checked before the model load so re-running a finished split is ~free.
     todo = list(range(len(entries)))
     if not args.overwrite:
-        todo = [i for i in todo if not entries[i].get("pred_text")]
+        todo = [i for i in todo
+                if not entries[i].get("pred_text") or (ztts2 and entries[i].get("asr_profile") != "ztts2")]
     if len(todo) < len(entries):
         print(f"Resuming: {len(entries) - len(todo)} already transcribed, {len(todo)} remaining.")
     if not todo:
@@ -49,9 +89,17 @@ def main(args):
         return
 
     # ── ASR model ─────────────────────────────────────────────────────────────
-    asr_processor = AutoProcessor.from_pretrained(args.asr_model_id)
-    asr_model = AutoModelForMultimodalLM.from_pretrained(
-        args.asr_model_id, dtype=torch_dtype, device_map=args.device
+    whisper = ztts2 and args.asr_language not in ZTTS2_QWEN_LANGS
+    backend = "whisper" if whisper else "qwen"
+    if whisper:
+        model_id, revision = ZTTS2_WHISPER_MODEL
+    elif ztts2:
+        model_id, revision = ZTTS2_QWEN_MODEL
+    else:
+        model_id, revision = args.asr_model_id, None
+    asr_processor = AutoProcessor.from_pretrained(model_id, revision=revision)
+    asr_model = (WhisperForConditionalGeneration if whisper else AutoModelForMultimodalLM).from_pretrained(
+        model_id, revision=revision, dtype=torch_dtype, device_map=args.device
     )
     asr_model.eval()
     asr_sr = 16_000
@@ -60,23 +108,53 @@ def main(args):
     ):
         asr_sr = asr_processor.feature_extractor.sampling_rate
 
+    if whisper:
+        language = ZTTS2_WHISPER_CODE.get(args.asr_language, args.asr_language)
+    elif ztts2:
+        language = args.asr_language if args.asr_language in ZTTS2_QWEN_HINT_LANGS else None
+    else:
+        language = args.asr_language or None  # '' => None => Qwen3-ASR auto-detects
+    max_new_tokens = ZTTS2_MAX_NEW_TOKENS if ztts2 else args.asr_max_new_tokens
+    print(f"ASR: {model_id}@{revision or 'main'} ({backend}), language={language or 'auto'}")
+
     # Cap clip length: a runaway generation padded into a batch can OOM the ASR encoder, and
     # anything that long is degenerate and scores as an error anyway.
     max_samples = int(args.max_audio_seconds * asr_sr) if args.max_audio_seconds > 0 else None
+
+    def generate(speech, **kw):
+        """Greedy transcripts of `speech` (a list of 16 kHz arrays); `kw` goes to `generate`."""
+        with torch.no_grad():
+            if whisper:
+                feats = asr_processor.feature_extractor(
+                    speech, sampling_rate=asr_sr, return_tensors="pt"
+                ).input_features.to(asr_model.device, asr_model.dtype)
+                ids = asr_model.generate(feats, language=language, task="transcribe", do_sample=False,
+                                         num_beams=1, **kw)
+                return [t.strip() for t in asr_processor.batch_decode(ids, skip_special_tokens=True)]
+            inputs = asr_processor.apply_transcription_request(speech, language=[language] * len(speech)).to(
+                asr_model.device, asr_model.dtype
+            )
+            output_ids = asr_model.generate(**inputs, **kw)
+        generated_ids = output_ids[:, inputs["input_ids"].shape[1]:]
+        texts = asr_processor.decode(generated_ids, return_format="transcription_only")
+        return [t.strip() for t in texts] if ztts2 else texts
 
     def transcribe(paths):
         speech = [load_audio(path, sampling_rate=asr_sr) for path in paths]
         if max_samples is not None:
             speech = [s[:max_samples] for s in speech]
-        lang = args.asr_language or None  # '' => None => Qwen3-ASR auto-detects
-        language = [lang] * len(speech)
-        inputs = asr_processor.apply_transcription_request(speech, language=language).to(
-            asr_model.device, asr_model.dtype
-        )
-        with torch.no_grad():
-            output_ids = asr_model.generate(**inputs, max_new_tokens=args.asr_max_new_tokens)
-        generated_ids = output_ids[:, inputs["input_ids"].shape[1]:]
-        return asr_processor.decode(generated_ids, return_format="transcription_only")
+        texts = generate(speech, max_new_tokens=max_new_tokens)
+        if ztts2:
+            # ZTTS2-Eval's loop guard: re-decode only the looping transcripts, with a repetition penalty, and keep
+            # a retry that breaks the loop or at least shortens it.
+            loops = [i for i, text in enumerate(texts) if _degenerate(text)]
+            if loops:
+                retries = generate([speech[i] for i in loops], **ZTTS2_RETRY_KWARGS)
+                for i, retry in zip(loops, retries):
+                    if not _degenerate(retry) or len(retry) < len(texts[i]):
+                        print(f"  loop guarded: {os.path.basename(paths[i])} ({len(texts[i])} -> {len(retry)} chars)")
+                        texts[i] = retry
+        return texts
 
     def rewrite_manifest():
         with open(args.manifest_path, "w", encoding="utf-8") as f:
@@ -93,6 +171,11 @@ def main(args):
         preds = transcribe([_resolve(entries[i]["audio_filepath"]) for i in idxs])
         for i, pred in zip(idxs, preds):
             entries[i]["pred_text"] = pred
+            # The stamp marks the row as transcribed (an empty pred_text alone does not: stage 1
+            # writes ""), which scoring and the SIM stage check before using the manifest.
+            entries[i]["asr_model"] = f"{model_id}@{revision or 'main'}"
+            if ztts2:
+                entries[i]["asr_profile"] = "ztts2"
         rewrite_manifest()  # persist progress so a crash doesn't lose completed chunks
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -130,6 +213,13 @@ if __name__ == "__main__":
         "--overwrite",
         action="store_true",
         help="Re-transcribe every row even if it already has a pred_text (default: resume, skip filled rows).",
+    )
+    parser.add_argument(
+        "--asr_profile",
+        choices=["leaderboard", "ztts2"],
+        default="leaderboard",
+        help="'ztts2': ZTTS2-Eval's ASR (Whisper-large-v3 / Qwen3-ASR routed per language, pinned, loop guard); "
+             "--asr_model_id is ignored.",
     )
     parser.add_argument("--device", type=str, default="cuda", help="'cuda', 'cpu', or 'cuda:0'.")
     parser.add_argument("--dtype", type=str, default="bfloat16", help="ASR model dtype, e.g. 'bfloat16'.")

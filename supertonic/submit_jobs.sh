@@ -37,42 +37,7 @@ generate_stage() {
 # ── Languages this backend can select ────────────────────────────────────────
 # The language codes from the model card's front-matter. No Chinese, so zh splits are skipped
 # (run_eval.py's --lang 'na' = language-agnostic is a fallback, not Chinese support).
-SUPERTONIC_LANGUAGES="en ko ja ar bg cs da de el es et fi fr hi hr hu id it lt lv nl pl pt ro ru sk sl sv tr uk vi"
-supports_language() { [[ " ${SUPERTONIC_LANGUAGES} " == *" $1 "* ]]; }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ko ko ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ru ru ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts ja ja ${MINIMAX_EVAL_PATH}"
-    "tts ko ko ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts pt pt ${MINIMAX_EVAL_PATH}"
-    "tts ru ru ${MINIMAX_EVAL_PATH}"
-    "tts nl nl ${MINIMAX_EVAL_PATH}"
-    "tts pl pl ${MINIMAX_EVAL_PATH}"
-    "tts cs cs ${MINIMAX_EVAL_PATH}"
-    "tts ro ro ${MINIMAX_EVAL_PATH}"
-    "tts el el ${MINIMAX_EVAL_PATH}"
-    "tts fi fi ${MINIMAX_EVAL_PATH}"
-    "tts tr tr ${MINIMAX_EVAL_PATH}"
-    "tts ar ar ${MINIMAX_EVAL_PATH}"
-    "tts hi hi ${MINIMAX_EVAL_PATH}"
-    "tts id id ${MINIMAX_EVAL_PATH}"
-    "tts vi vi ${MINIMAX_EVAL_PATH}"
-)
+SUPPORTED_LANGUAGES="en ko ja ar bg cs da de el es et fi fr hi hr hu id it lt lv nl pl pt ro ru sk sl sv tr uk vi"
 
 # ── Models: "model_id batch_size voice" (CLI args override) ──────────────────
 MODEL_CONFIGS=("Supertone/supertonic-3 32 M1")

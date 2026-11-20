@@ -11,7 +11,7 @@ DEFAULT_STAGES="generate transcribe utmos"                 # no SIM (fixed voice
 RUN_EVAL_INJECT="$(inject_run_eval)"
 
 # English only (model card), with four built-in voices: us_female, us_male, uk_female, uk_male.
-supports_language() { [[ "$1" == "en" ]]; }
+SUPPORTED_LANGUAGES="en"
 LFM_VOICE="${LFM_VOICE:-us_female}"
 
 # ── Stage 1: TTS generation (generate_sequential is batch-1 only — no batch size) ──
@@ -33,14 +33,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=("LiquidAI/LFM2.5-Audio-1.5B")

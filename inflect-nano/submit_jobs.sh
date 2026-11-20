@@ -32,16 +32,7 @@ generate_stage() {
 # ── Languages this backend can select ────────────────────────────────────────
 # English-only (model card: `language: [en]`); non-en splits are skipped rather than synthesized
 # with English phonemes, which would give a meaningless (>100%) CER.
-INFLECT_NANO_LANGUAGES="en"
-supports_language() { [[ " ${INFLECT_NANO_LANGUAGES} " == *" $1 "* ]]; }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
+SUPPORTED_LANGUAGES="en"
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=("owensong/Inflect-Nano-v1")

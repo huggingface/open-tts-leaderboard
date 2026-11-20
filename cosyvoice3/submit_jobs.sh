@@ -26,9 +26,7 @@ resolve_mode() {
 }
 
 # ── Languages Fun-CosyVoice3 covers (model card: 9 languages) ────────────────
-# Matched against asr_language (so `zh_hard` / `hard_zh` match `zh`).
-COSYVOICE3_LANGUAGES=" zh en ja ko de es fr it ru "
-supports_language() { [[ "${COSYVOICE3_LANGUAGES}" == *" $1 "* ]]; }
+SUPPORTED_LANGUAGES="zh en ja ko de es fr it ru"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id batch_size [llm_checkpoint]". ──
 # No batched API (inference_zero_shot takes one string); --batch_size only chunks manifest
@@ -56,31 +54,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "tts zh zh"
-    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ko ko ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ru ru ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot zh zh ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts zh zh ${MINIMAX_EVAL_PATH}"
-    "tts ja ja ${MINIMAX_EVAL_PATH}"
-    "tts ko ko ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts ru ru ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id batch_size [llm_checkpoint]" (CLI args override) ───────
 # The base (llm.pt) and RL (llm.rl.pt) checkpoints write separate manifests, so both can coexist.

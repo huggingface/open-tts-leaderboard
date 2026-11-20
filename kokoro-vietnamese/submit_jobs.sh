@@ -12,7 +12,7 @@ RUN_EVAL_INJECT="$(inject_run_eval)"
 
 # Vietnamese only. Built-in voices: diem_trinh, hung_thinh, mai_linh, mai_loan, manh_dung, my_yen, ...
 KOKORO_VI_VOICE="${KOKORO_VI_VOICE:-diem_trinh}"
-supports_language() { [[ "$1" == "vi" ]]; }
+SUPPORTED_LANGUAGES="vi"
 
 # ── Stage 1: TTS generation (serial synthesis, one sample at a time) ─────────
 generate_stage() {
@@ -33,12 +33,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" ─────────────────────
-# MiniMax multilingual: 100 sentences per language, public at hf-audio/minimax_eval.
-DATASET_CONFIGS=(
-    "tts vi vi ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=("contextboxai/Kokoro-Vietnamese")

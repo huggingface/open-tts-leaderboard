@@ -25,6 +25,9 @@ Usage:
     # re-use results already synced locally, and open the PR
     python scripts/rescore_all.py --skip_sync --open_pr
 
+    # add the rescore to an open PR (reads its CSVs, pushes to it) instead of opening a new one
+    python scripts/rescore_all.py --skip_sync --pr 135 --open_pr
+
     # one language only (e.g. after a Vietnamese-only normalizer change): only rows with a
     # published `vi WER` are synced and scored, and only `vi WER` and `avg WER` can change
     python scripts/rescore_all.py --targets minimax minimax_voice_clone --languages vi
@@ -39,6 +42,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 from huggingface_hub import CommitOperationAdd, HfApi  # noqa: E402
+from huggingface_hub.errors import EntryNotFoundError  # noqa: E402
 
 from open_results_pr import (  # noqa: E402
     RESULTS_BUCKET,
@@ -61,6 +65,12 @@ ROW_OVERRIDES = {
     "FunAudioLLM/Fun-CosyVoice3-0.5B-2512 (RL)": ("FunAudioLLM/Fun-CosyVoice3-0.5B-2512", "_rl"),
     "ResembleAI/chatterbox (ChatterboxTTS)": ("ResembleAI/chatterbox", ""),
     "ResembleAI/chatterbox (ChatterboxMultilingualTTS)": ("ResembleAI/chatterbox", "_multilingual"),
+    "ampixa/sanoTTS (heart)": ("ampixa/sanoTTS", ""),
+    "ampixa/sanoTTS (amy)": ("ampixa/sanoTTS", "_amy"),
+    "ampixa/sanoTTS (heart-nano)": ("ampixa/sanoTTS", "_heartnano"),
+    "ConwayResearch/Underdog-Woof (Mira)": ("ConwayResearch/Underdog-Woof", "_mira"),
+    "n4ze3m/tiny-voca (F2)": ("n4ze3m/tiny-voca", ""),
+    "n4ze3m/tiny-voca (M2)": ("n4ze3m/tiny-voca", "_m2"),
 }
 
 SIM_BACKEND = "wavlm_seed_tts"  # same default as open_results_pr.py; WER does not depend on it
@@ -165,20 +175,45 @@ def main():
              "manifests and skipped (default: 0.01, the published rounding).",
     )
     parser.add_argument("--force", action="store_true", help="Update WER even when RTFx does not match.")
+    parser.add_argument(
+        "--all_rows",
+        action="store_true",
+        help="Also rescore rows that are not on every core benchmark (e.g. Seed-TTS-only or "
+             "single-language models), e.g. after a change to how WER is computed.",
+    )
     parser.add_argument("--hf_token", default=os.environ.get("HF_TOKEN"), help="Defaults to $HF_TOKEN.")
     parser.add_argument("--out_dir", default=None, help="Also write the updated CSVs to this directory.")
     parser.add_argument("--open_pr", action="store_true", help="Actually open the PR (default: dry run).")
     parser.add_argument("--commit_message", default="Rescore WER after normalizer change", help="PR title.")
+    parser.add_argument(
+        "--pr",
+        type=int,
+        default=None,
+        help="Add to this open PR (its number) instead of opening a new one: the CSVs are read from "
+             "refs/pr/<N>, so the PR's other changes are kept, and the commit is pushed to it.",
+    )
     args = parser.parse_args()
+    base_revision = f"refs/pr/{args.pr}" if args.pr is not None else None
 
     local_dir = args.local_dir or os.path.join(REPO_ROOT, "results")
-    every_file = {key: fetch_csv(target.filename, args.hf_token) for key, target in TARGETS.items()}
-    published = {key: every_file[key] for key in args.targets}
+    every_file = {}
+    for key, target in TARGETS.items():
+        try:
+            every_file[key] = fetch_csv(target.filename, args.hf_token, base_revision)
+        except EntryNotFoundError:
+            # A fixed-language benchmark's file only exists once something was published to it.
+            if target.languages is None:
+                raise
+            print(f"{target.filename}: not published yet; skipping.")
+    published = {key: every_file[key] for key in args.targets if key in every_file}
 
-    # Only rows published on every benchmark (Seed-TTS and CV3, plain or voice-clone file), so
-    # partial entries such as Seed-TTS-only models are left alone.
+    # Only rows published on every core benchmark (Seed-TTS, CV3 and MiniMax, plain or voice-clone
+    # file), so partial entries such as Seed-TTS-only models are left alone. Fixed-language benchmarks
+    # (Target.languages) are optional: their rows are rescored whatever else the model is on.
     names_per_benchmark = {}
     for key, csv_file in every_file.items():
+        if TARGETS[key].languages is not None:
+            continue
         benchmark = TARGETS[key].marker
         names_per_benchmark.setdefault(benchmark, set()).update(row[0].strip() for row in csv_file.rows)
     on_all_benchmarks = set.intersection(*names_per_benchmark.values())
@@ -191,7 +226,7 @@ def main():
             name = row[0].strip()
             if args.models and name not in args.models:
                 continue
-            if name not in on_all_benchmarks:
+            if TARGETS[key].languages is None and name not in on_all_benchmarks and not args.all_rows:
                 continue
             if args.languages and not has_published_wer(csv_file.header, row, args.languages):
                 continue
@@ -304,9 +339,10 @@ def main():
             f"WER rescored from `{args.bucket}` with `scripts/rescore_all.py`.\n\n"
             f"Files: {', '.join(sorted(updated))}"
         ),
-        create_pr=True,
+        create_pr=base_revision is None,
+        revision=base_revision,
     )
-    print(f"\nPR opened: {commit.pr_url}")
+    print(f"\nPushed to PR #{args.pr}: {commit.commit_url}" if base_revision else f"\nPR opened: {commit.pr_url}")
 
 
 if __name__ == "__main__":

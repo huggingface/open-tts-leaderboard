@@ -41,43 +41,8 @@ generate_stage() {
         "
 }
 
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-# Without a 4th field the line uses DEFAULT_DATASET_PATH (hf-audio/seed_tts_eval).
-DATASET_CONFIGS=(
-    "tts en en"
-    "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot zh zh ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ko ko ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ru ru ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports.
-    # Not supported by the model: cs, ro, el, uk. Supported but not in MiniMax: ms, no, sv.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts zh zh ${MINIMAX_EVAL_PATH}"
-    "tts yue yue ${MINIMAX_EVAL_PATH}"
-    "tts ja ja ${MINIMAX_EVAL_PATH}"
-    "tts ko ko ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts pt pt ${MINIMAX_EVAL_PATH}"
-    "tts ru ru ${MINIMAX_EVAL_PATH}"
-    "tts nl nl ${MINIMAX_EVAL_PATH}"
-    "tts pl pl ${MINIMAX_EVAL_PATH}"
-    "tts fi fi ${MINIMAX_EVAL_PATH}"
-    "tts tr tr ${MINIMAX_EVAL_PATH}"
-    "tts ar ar ${MINIMAX_EVAL_PATH}"
-    "tts hi hi ${MINIMAX_EVAL_PATH}"
-    "tts id id ${MINIMAX_EVAL_PATH}"
-    "tts th th ${MINIMAX_EVAL_PATH}"
-    "tts vi vi ${MINIMAX_EVAL_PATH}"
-)
+# ── Languages Audio8 Realistic covers (model card; no cs, el, ro, uk) ──
+SUPPORTED_LANGUAGES="zh en ja ko de fr es it ru ar fi hi id ms nl nb pl pt sv th tr vi yue"
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
 MODEL_CONFIGS=(

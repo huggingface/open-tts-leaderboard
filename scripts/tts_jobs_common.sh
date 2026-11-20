@@ -5,7 +5,7 @@
 #   1. sets TTS_SPACE (+ any backend-specific env) and RUN_EVAL_INJECT
 #   2. defines generate_stage()  — the stage-1 (TTS generation) job for one (model, dataset)
 #   3. optionally defines resolve_mode() — sets CLONE / MODE_SUFFIX per model (default: no clone)
-#   4. sets MODEL_CONFIGS (applying the CLI override) + optionally DATASET_CONFIGS
+#   4. sets SUPPORTED_LANGUAGES (see "Datasets") and MODEL_CONFIGS (applying the CLI override)
 #   5. calls run_pipeline
 #
 # The pipeline for each (model, dataset) is: stage 1 (generate, backend-specific) → stage 2
@@ -19,8 +19,8 @@
 #   DATASET SPLIT ASR_LANG   DATASET_PATH DATASET_SAFE   MODE_SUFFIX CLONE   BUCKET_MANIFEST
 #   TTS_IMAGE NAMESPACE_ARG
 # plus every shared config var below. Backends reference these in their generate_stage().
-# NOTE: DATASET_PATH is per-combo (a DATASET_CONFIGS line may name its own dataset repo), so read
-# it inside generate_stage() — never cache it at source time.
+# NOTE: DATASET_PATH is per-combo (each dataset has its own repo), so read it inside generate_stage()
+# — never cache it at source time.
 
 # ── Locations ────────────────────────────────────────────────────────────────
 COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,16 +32,18 @@ SPACE="${SPACE:-bezzam/evals}"                                   # shared scorer
 RESULTS_BUCKET="${RESULTS_BUCKET:-hf-audio/tts_leaderboard_h200}"   # shared HF bucket (per-model folders)
 # HF namespace holding your PRIVATE copies of the Seed-TTS / CV3 eval datasets (their licenses forbid
 # redistribution; push them with scripts/prepare_{seed_tts,cv3}_eval.py). Only supplies the defaults
-# below — DATASET_PATH / CV3_EVAL_PATH (or a DATASET_CONFIGS line's 4th field) can name any repo.
+# below — DATASET_PATH / CV3_EVAL_PATH can name any repo.
 DATASET_NAMESPACE="${DATASET_NAMESPACE:-hf-audio}"
-# Default dataset repo, used for every DATASET_CONFIGS line that does not name its own (4th field).
+# Seed-TTS repo; also the repo of a raw DATASET_CONFIGS line without a 4th field.
 DEFAULT_DATASET_PATH="${DATASET_PATH:-${DATASET_NAMESPACE}/seed_tts_eval}"
-# The other eval sets — named explicitly by the CV3 / MiniMax lines of a backend's DATASET_CONFIGS.
+# The other eval sets (registry under "Datasets" below).
 CV3_EVAL_PATH="${CV3_EVAL_PATH:-${DATASET_NAMESPACE}/cv3_eval}"
 # MiniMax is CC BY-SA 4.0, so everyone uses the one public copy (scripts/prepare_minimax_eval.py).
 MINIMAX_EVAL_PATH="${MINIMAX_EVAL_PATH:-hf-audio/minimax_eval}"
 # Neyshekar (Persian) is CC0, so everyone uses the one public copy (scripts/prepare_neyshekar_eval.py).
 NEYSHEKAR_EVAL_PATH="${NEYSHEKAR_EVAL_PATH:-hf-audio/neyshekar_eval}"
+# ZTTS2-Eval Mini (coreset panels of ZTTS2-Eval; Clean CC-BY-4.0, In-The-Wild CC-BY-NC-SA-4.0)
+ZTTS2_EVAL_MINI_PATH="${ZTTS2_EVAL_MINI_PATH:-hf-audio/ztts2_eval_mini}"
 ORG_NAME="${ORG_NAME:-}"
 # Stage-1 (generation) flavor. IMPORTANT: keep this the SAME (h200) for EVERY backend — RTFx is
 # measured on the generation stage, so a uniform GPU is required for RTFx to be comparable across
@@ -53,12 +55,15 @@ SIM_FLAVOR="${SIM_FLAVOR:-l4x1}"             # stage 3 flavor
 KOMOS_FLAVOR="${KOMOS_FLAVOR:-l4x1}"         # optional Korean MOS stage
 UTMOS_FLAVOR="${UTMOS_FLAVOR:-l4x1}"         # stage 4 flavor
 MAX_EVAL_SAMPLES="${MAX_EVAL_SAMPLES:--1}"   # -1 = all; set e.g. 8 to smoke-test
-# Restrict a run to some of the backend's DATASET_CONFIGS: space-separated asr_language codes
-# (field 3 of a config line), e.g. ONLY_LANGS="de". Empty (default) runs every configured combo.
+# Restrict a run to some of the backend's datasets / languages (see "Datasets" below), e.g.
+# ONLY_DATASETS="minimax" ONLY_LANGS="de fr". Datasets by registry name (seed_tts cv3 minimax neyshekar
+# ztts2_mini_clean ztts2_mini_itw) or repo name (minimax_eval; ztts2_eval_mini covers both ZTTS2 panels).
+# Empty (default) runs every dataset and supported language, except the opt-in ztts2_mini_itw (run it by
+# naming it here).
 ONLY_LANGS="${ONLY_LANGS:-}"
-# Same, by dataset repo name (the part after the namespace), e.g. ONLY_DATASETS="minimax_eval" or
-# "seed_tts_eval cv3_eval". Combines with ONLY_LANGS.
 ONLY_DATASETS="${ONLY_DATASETS:-}"
+# DRY_RUN=true: print the (model, dataset, split) combos a run would submit, and submit nothing.
+DRY_RUN="${DRY_RUN:-false}"
 ASR_BATCH_SIZE="${ASR_BATCH_SIZE:-32}"       # ASR minibatch (lower if it OOMs)
 SIM_BATCH_SIZE="${SIM_BATCH_SIZE:-32}"       # SIM minibatch (ignored by the wavlm_seed_tts backend)
 # Speaker-similarity embedder. 'xvector': WavLMForXVector (wavlm-base-plus-sv) — cheap but poorly
@@ -94,15 +99,82 @@ VOICE_CLONE="${VOICE_CLONE:-false}"
 # code is injected at runtime, so there are no secrets to keep private.
 SCORER_IMAGE="hf.co/spaces/${SPACE}"
 
-# Datasets: "config split asr_language [dataset_path]". Backends may override before run_pipeline.
-# asr_language is the language hint for Qwen3-ASR (stage 2) and, for backends that take one,
-# for the TTS model too — so it must be a real language code, not a split name.
-# The optional 4th field points a single line at a different dataset repo (default:
-# DEFAULT_DATASET_PATH), so one list can mix e.g. Seed-TTS and CV3-Eval combos. It only has to
-# expose the same columns the backends read: `text` + `prompt_text`/`prompt_audio` when cloning.
-DATASET_CONFIGS=("tts en en")
+# ── Datasets ─────────────────────────────────────────────────────────────────
+# A backend lists the languages its model speaks (SUPPORTED_LANGUAGES); run_pipeline expands every dataset
+# into its splits from the registry below and keeps the splits in a supported language, so adding a
+# dataset or a language never touches a backend.
+#   SUPPORTED_LANGUAGES="en zh fr"           # default (empty): every language
+#   DATASETS="seed_tts cv3 minimax"          # optional, to leave a whole dataset out (default: all but OPT_IN_DATASETS)
+# Backends with per-model or per-mode rules override supports_language() (calling
+# language_supported for the SUPPORTED_LANGUAGES check). A run can be narrowed further with ONLY_DATASETS
+# (registry names, or the repo names) and ONLY_LANGS.
+#
+# Registry: dataset_repo <name> is the dataset repo; dataset_splits <name> its "config/split" entries. The
+# split doubles as the language code (Qwen3-ASR hint for stage 2, and the TTS language for backends that
+# take one); "config/split:lang" names the language when they differ. `case`, not associative arrays, so
+# this runs on macOS bash 3.2. Escape hatch for a one-off set: append raw
+# "config split asr_language [dataset_path]" lines to DATASET_CONFIGS before run_pipeline.
+DATASET_NAMES="seed_tts cv3 minimax neyshekar ztts2_mini_clean ztts2_mini_itw"   # every dataset, in expansion order
+dataset_repo() {
+    case "$1" in
+        seed_tts)   echo "${DEFAULT_DATASET_PATH}" ;;
+        cv3)        echo "${CV3_EVAL_PATH}" ;;
+        minimax)    echo "${MINIMAX_EVAL_PATH}" ;;
+        neyshekar)  echo "${NEYSHEKAR_EVAL_PATH}" ;;
+        ztts2_mini_clean|ztts2_mini_itw) echo "${ZTTS2_EVAL_MINI_PATH}" ;;
+    esac
+}
+dataset_splits() {
+    case "$1" in
+        seed_tts)   printf 'tts/%s ' en zh ;;
+        cv3)        printf 'zero_shot/%s ' en zh ja ko de fr es it ru ;;
+        # MiniMax multilingual (100 sentences/language): every language but uk (Qwen3-ASR has no Ukrainian).
+        minimax)    printf 'tts/%s ' en zh yue ja ko fr de es it pt ru nl pl cs ro el fi tr ar hi id th vi ;;
+        neyshekar)  printf 'tts/%s ' fa ;;
+        # ZTTS2-Eval Mini: one repo, two panels run (and reported) as separate datasets. Clean (FLEURS-R,
+        # 35 splits) and In-The-Wild (VoxBlink2, 20 splits). Tagalog is `fil` for both (the ITW split is `tl`).
+        ztts2_mini_clean) printf 'clean/%s ' en zh de es fr it ja ko ru pt ar hi tr pl id th fil nl vi cs sv da \
+                              fi el hu ro uk nb he bg hr sk ca ms fa ;;
+        ztts2_mini_itw)   printf 'in_the_wild/%s ' en zh de es fr it ja ko ru pt ar hi id tr tl:fil pl th nl uk vi ;;
+    esac
+}
+# Opt-in datasets: wired in, but not run by default (not on the leaderboard yet); a run includes one only
+# when ONLY_DATASETS names it (by registry name, or ztts2_eval_mini for both ZTTS2 panels), e.g.
+# ONLY_DATASETS="ztts2_mini_itw".
+OPT_IN_DATASETS="ztts2_mini_itw"
+DATASETS=""
+for _name in ${DATASET_NAMES}; do
+    [[ " ${OPT_IN_DATASETS} " == *" ${_name} "* ]] || DATASETS+="${DATASETS:+ }${_name}"
+done
+unset _name
+SUPPORTED_LANGUAGES=""
+DATASET_CONFIGS=()
+
+# expand_datasets → appends one "config split asr_language dataset_path name" line to DATASET_CONFIGS per split of
+# every dataset in DATASETS (registry order), plus any opt-in dataset ONLY_DATASETS names. Language gating
+# happens per model, in run_pipeline.
+expand_datasets() {
+    local name entry config split lang
+    for name in ${DATASETS}; do
+        [[ " ${DATASET_NAMES} " == *" ${name} "* ]] ||
+            { echo "ERROR: unknown dataset '${name}' in DATASETS (known: ${DATASET_NAMES})." >&2; exit 1; }
+    done
+    for name in ${DATASET_NAMES}; do
+        if [[ " ${DATASETS} " != *" ${name} "* ]]; then
+            [[ " ${OPT_IN_DATASETS} " == *" ${name} "* ]] || continue
+            [[ " ${ONLY_DATASETS} " == *" ${name} "* || " ${ONLY_DATASETS} " == *" $(basename "$(dataset_repo "${name}")") "* ]] || continue
+        fi
+        for entry in $(dataset_splits "${name}"); do
+            config="${entry%%/*}"; split="${entry#*/}"; lang="${split#*:}"; split="${split%%:*}"
+            DATASET_CONFIGS+=("${config} ${split} ${lang} $(dataset_repo "${name}") ${name}")
+        done
+    done
+}
 
 utmos_language() { [[ " ${UTMOS_LANGS} " == *" $1 "* ]]; }
+# ZTTS2-Eval Mini lines are transcribed with ZTTS2-Eval's ASR choice (transcribe.py --asr_profile ztts2:
+# Whisper-large-v3 / Qwen3-ASR routed per language); every other dataset keeps Qwen3-ASR.
+asr_profile() { if [[ "${DATASET_PATH##*/}" == "ztts2_eval_mini" ]]; then echo ztts2; else echo leaderboard; fi; }
 stage_enabled() { [[ " ${STAGES} " == *" $1 "* ]]; }
 
 # ── Injection helpers ────────────────────────────────────────────────────────
@@ -130,21 +202,29 @@ inject_dir() {
 # keeping any PYTHONPATH the image already sets.
 SCRIPTS_PYTHONPATH='export PYTHONPATH=/app/scripts${PYTHONPATH:+:${PYTHONPATH}} &&'
 
+# Snippet pinning Hub model downloads in the job (every stage): scripts/hf_pin/sitecustomize.py, first
+# on PYTHONPATH, maps a download of a repo listed in model_revisions.json at `main` to its pinned
+# commit and logs `[hf-pin] UNPINNED <repo>` for unlisted ones (HF_PIN_STRICT=true refuses them).
+# Maintain the list with scripts/pin_revisions.py.
+HF_PIN_STRICT="${HF_PIN_STRICT:-false}"
+HF_PIN_INJECT="$(inject_cmd_gz "${REPO_ROOT}/scripts/hf_pin/sitecustomize.py" /app/hf_pin/sitecustomize.py) $(inject_cmd_gz "${REPO_ROOT}/model_revisions.json" /app/hf_pin/model_revisions.json) export HF_PIN_STRICT=${HF_PIN_STRICT} PYTHONPATH=/app/hf_pin\${PYTHONPATH:+:\${PYTHONPATH}} &&"
+
 # inject_run_eval → `... &&` snippet recreating the sourcing backend's run_eval.py at
-# /app/<backend>/ plus the shared scripts/run_eval_utils.py it imports, on PYTHONPATH. Backends set
-# RUN_EVAL_INJECT="$(inject_run_eval)".
+# /app/<backend>/ plus the shared scripts/run_eval_utils.py it imports, on PYTHONPATH, with the Hub
+# downloads pinned (HF_PIN_INJECT). Backends set RUN_EVAL_INJECT="$(inject_run_eval)".
 inject_run_eval() {
-    echo "$(inject_cmd "${BACKEND_DIR}/run_eval.py" "/app/$(basename "${BACKEND_DIR}")/run_eval.py")" \
+    echo "${HF_PIN_INJECT}" \
+         "$(inject_cmd "${BACKEND_DIR}/run_eval.py" "/app/$(basename "${BACKEND_DIR}")/run_eval.py")" \
          "$(inject_cmd "${REPO_ROOT}/scripts/run_eval_utils.py" /app/scripts/run_eval_utils.py)" \
          "${SCRIPTS_PYTHONPATH}"
 }
 
 # Shared scorer-stage injects (transcribe.py / score_similarity.py live in transformers/).
-TRANSCRIBE_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/transcribe.py" /app/transformers/transcribe.py)"
-SIM_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/score_similarity.py" /app/transformers/score_similarity.py)"
-UTMOS_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/score_utmos.py" /app/transformers/score_utmos.py)"
+TRANSCRIBE_INJECT="${HF_PIN_INJECT} $(inject_cmd "${REPO_ROOT}/transformers/transcribe.py" /app/transformers/transcribe.py)"
+SIM_INJECT="${HF_PIN_INJECT} $(inject_cmd "${REPO_ROOT}/transformers/score_similarity.py" /app/transformers/score_similarity.py)"
+UTMOS_INJECT="${HF_PIN_INJECT} $(inject_cmd "${REPO_ROOT}/transformers/score_utmos.py" /app/transformers/score_utmos.py)"
 
-KOMOS_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/score_komos.py" /app/transformers/score_komos.py)"
+KOMOS_INJECT="${HF_PIN_INJECT} $(inject_cmd "${REPO_ROOT}/transformers/score_komos.py" /app/transformers/score_komos.py)"
 
 # ── Default hooks (backends override as needed) ─────────────────────────────
 # voice_clone_mode [suffix_prefix] — sets CLONE / MODE_SUFFIX / VOICE_CLONE_FLAG from VOICE_CLONE.
@@ -169,10 +249,11 @@ resolve_mode() {
 }
 
 # Whether the CURRENT model (MODEL_CFG/MODEL_ID, already resolved) can synthesize $1, the dataset's
-# language code. Default: assume yes. Backends whose model list mixes languages — e.g. an
-# English-only checkpoint alongside a multilingual one — override this so incompatible
-# (model, dataset) combos are skipped instead of burning a GPU job on garbage audio.
-supports_language() { return 0; }
+# language code. Default: it is in SUPPORTED_LANGUAGES (empty = every language). Backends whose model
+# list mixes languages — e.g. an English-only checkpoint alongside a multilingual one — override this so
+# incompatible (model, dataset) combos are skipped instead of burning a GPU job on garbage audio.
+language_supported() { [[ -z "${SUPPORTED_LANGUAGES// }" || " ${SUPPORTED_LANGUAGES} " == *" $1 "* ]]; }
+supports_language() { language_supported "$1"; }
 
 # ── Transient-infra retry around a stage's `hf jobs run` ────────────────────
 # Parallel chains advance in lockstep, so N jobs pull the SAME Space image within seconds and the
@@ -220,15 +301,35 @@ wait_for_bucket() {
     local rel="${BUCKET_MANIFEST#/results/}" deadline=$((SECONDS + BUCKET_WAIT_TIMEOUT)) want have
     while (( SECONDS < deadline )); do
         want=$(hf buckets cp "hf://buckets/${RESULTS_BUCKET}/${rel}" - 2>/dev/null |
-            grep -oE '"(audio|prompt_audio)_filepath": "[^"]+"' | cut -d'"' -f4 | sort -u)
+            grep -oE '"(audio|prompt_audio)_filepath": "[^"]+"' | cut -d'"' -f4 | sort -u) || true
         if [[ -n "${want}" ]]; then
             have=$(hf buckets list "${RESULTS_BUCKET}/${MODEL_FOLDER}" -R 2>/dev/null |
-                awk '{print $NF}' | sed "s|^${MODEL_FOLDER}/||" | sort -u)
+                awk '{print $NF}' | sed "s|^${MODEL_FOLDER}/||" | sort -u) || true
             [[ -z "$(comm -23 <(echo "${want}") <(echo "${have}"))" ]] && return 0
         fi
         sleep 30
     done
     echo "── ${rel}: stage-1 outputs still not in the bucket after ${BUCKET_WAIT_TIMEOUT}s; giving up."
+    return 1
+}
+
+# ── Wait for stage-2 transcripts before SIM ─────────────────────────────────
+# SIM forks the manifest (pred_text included), and a transcribe job's in-place writes can reach the
+# bucket after `hf jobs run` returns: a SIM job started then forks the untranscribed copy, which
+# scores as 100% WER. Poll until the bucket manifest is transcribed, by the rule scoring uses
+# (normalizer.eval_utils.untranscribed_fraction): stage 1 writes `"pred_text": ""` on every row and
+# transcribe.py stamps each row it fills with `asr_model`; at most 20% empty, unstamped rows.
+wait_for_transcripts() {
+    local rel="${BUCKET_MANIFEST#/results/}" deadline=$((SECONDS + BUCKET_WAIT_TIMEOUT))
+    while (( SECONDS < deadline )); do
+        hf buckets cp "hf://buckets/${RESULTS_BUCKET}/${rel}" - 2>/dev/null | python3 -c '
+import json, sys
+rows = [json.loads(line) for line in sys.stdin if line.strip()]
+missing = sum(1 for r in rows if not (r.get("pred_text") or "").strip() and "asr_model" not in r)
+sys.exit(0 if rows and missing <= 0.2 * len(rows) else 1)' && return 0
+        sleep 30
+    done
+    echo "── ${rel}: transcripts still not in the bucket after ${BUCKET_WAIT_TIMEOUT}s; giving up before SIM."
     return 1
 }
 
@@ -241,19 +342,22 @@ transcribe_stage() {
         --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${SCORER_IMAGE}" \
         bash -c "
             ${TRANSCRIBE_INJECT}
-            python /app/transformers/transcribe.py --manifest_path=${BUCKET_MANIFEST} --asr_language=${ASR_LANG} --asr_batch_size=${ASR_BATCH_SIZE} --max_audio_seconds=${MAX_AUDIO_SECONDS} --device=cuda:0${ASR_OVERWRITE_FLAG}
+            python /app/transformers/transcribe.py --manifest_path=${BUCKET_MANIFEST} --asr_language=${ASR_LANG} --asr_batch_size=${ASR_BATCH_SIZE} --max_audio_seconds=${MAX_AUDIO_SECONDS} --device=cuda:0 --asr_profile=$(asr_profile)${ASR_OVERWRITE_FLAG}
         "
 }
 sim_stage() {
     local SIM_OVERWRITE_FLAG=""
     { [[ "${SIM_OVERWRITE}" == "true" ]] || stage_enabled generate; } && SIM_OVERWRITE_FLAG=" --overwrite"
+    # In-job backstop for the bucket gate: the job's mount can still serve the untranscribed copy.
+    local SIM_WAIT_FLAG=""
+    stage_enabled transcribe && SIM_WAIT_FLAG=" --wait_for_transcripts=${BUCKET_WAIT_TIMEOUT}"
     hf jobs run \
         --flavor "${SIM_FLAVOR}" --timeout 4h --secrets HF_TOKEN \
         --env PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True" ${NAMESPACE_ARG} \
         --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${SCORER_IMAGE}" \
         bash -c "
             ${SIM_INJECT}
-            python /app/transformers/score_similarity.py --manifest_path=${BUCKET_MANIFEST} --sim_backend=${SIM_BACKEND} --batch_size=${SIM_BATCH_SIZE} --max_audio_seconds=${MAX_AUDIO_SECONDS} --device=cuda:0${SIM_OVERWRITE_FLAG}
+            python /app/transformers/score_similarity.py --manifest_path=${BUCKET_MANIFEST} --sim_backend=${SIM_BACKEND} --batch_size=${SIM_BATCH_SIZE} --max_audio_seconds=${MAX_AUDIO_SECONDS} --device=cuda:0${SIM_OVERWRITE_FLAG}${SIM_WAIT_FLAG}
         "
 }
 utmos_stage() {
@@ -381,6 +485,7 @@ run_pipeline() {
     TTS_IMAGE="hf.co/spaces/${TTS_SPACE}"
     LOG_DIR="${BACKEND_DIR}/job_logs"; mkdir -p "${LOG_DIR}"
     NAMESPACE_ARG=""; [ -n "$ORG_NAME" ] && NAMESPACE_ARG="--namespace ${ORG_NAME}"
+    expand_datasets
 
     local model_cfg cfg
     for model_cfg in "${MODEL_CONFIGS[@]}"; do
@@ -404,30 +509,32 @@ run_pipeline() {
         # LANGS + MANIFEST_NAMES are parallel to PIDS: _wait_and_score groups the finished combos
         # by language so each is scored with its own normalizer.
         PIDS=(); TAGS=(); CHAIN_LOGS=(); LANGS=(); MANIFEST_NAMES=()
+        local -a UNSUPPORTED=()
         for cfg in "${DATASET_CONFIGS[@]}"; do
-            local CFG_DATASET_PATH
-            read -r DATASET SPLIT ASR_LANG CFG_DATASET_PATH <<< "$cfg"
+            local CFG_DATASET_PATH DATASET_NAME
+            # DATASET_NAME: the registry name (5th field; empty for an ad-hoc DATASET_CONFIGS line).
+            read -r DATASET SPLIT ASR_LANG CFG_DATASET_PATH DATASET_NAME <<< "$cfg"
             # Per-combo dataset repo (4th field, else the default). DATASET_SAFE feeds the manifest
             # name, so two datasets that share a config/split name still land in distinct manifests.
             DATASET_PATH="${CFG_DATASET_PATH:-${DEFAULT_DATASET_PATH}}"
             DATASET_SAFE="${DATASET_PATH//\//-}"
-            # Caller-requested subset (ONLY_DATASETS / ONLY_LANGS), checked before supports_language so
-            # the "not supported" message is never printed for a combo the caller simply skipped.
-            if [[ -n "${ONLY_DATASETS}" && " ${ONLY_DATASETS} " != *" ${DATASET_PATH##*/} "* ]]; then
-                echo "Skipping ${DATASET_PATH##*/}/${DATASET}/${SPLIT}: not in ONLY_DATASETS='${ONLY_DATASETS}'."
+            # Caller-requested subset (ONLY_DATASETS: registry or repo names; ONLY_LANGS), skipped silently.
+            if [[ -n "${ONLY_DATASETS}" && " ${ONLY_DATASETS} " != *" ${DATASET_PATH##*/} "* &&
+                  ( -z "${DATASET_NAME}" || " ${ONLY_DATASETS} " != *" ${DATASET_NAME} "* ) ]]; then
                 continue
             fi
-            if [[ -n "${ONLY_LANGS}" && " ${ONLY_LANGS} " != *" ${ASR_LANG} "* ]]; then
-                echo "Skipping ${DATASET}/${SPLIT}: not in ONLY_LANGS='${ONLY_LANGS}'."
-                continue
-            fi
+            [[ -n "${ONLY_LANGS}" && " ${ONLY_LANGS} " != *" ${ASR_LANG} "* ]] && continue
             # Skip combos the model can't do at all — synthesizing Chinese with an English-only
             # checkpoint produces English-phoneme gibberish and a meaningless (>100%) CER.
             if ! supports_language "${ASR_LANG}"; then
-                echo "Skipping ${DATASET}/${SPLIT}: ${MODEL_ID} does not support language '${ASR_LANG}'."
+                [[ " ${UNSUPPORTED[*]} " == *" ${ASR_LANG} "* ]] || UNSUPPORTED+=("${ASR_LANG}")
                 continue
             fi
             BUCKET_MANIFEST="/results/${MODEL_FOLDER}/MODEL_${MODEL_SAFE}_DATASET_${DATASET_SAFE}_${DATASET}_${SPLIT}${MODE_SUFFIX}.jsonl"
+            if [[ "${DRY_RUN}" == "true" ]]; then
+                echo "Would submit: ${DATASET_PATH##*/}/${DATASET}/${SPLIT}  (language ${ASR_LANG}) -> $(basename "${BUCKET_MANIFEST}")"
+                continue
+            fi
             # The dataset repo name is in the log name: Seed-TTS and MiniMax share the `tts` config and
             # split names, and their combos run in parallel.
             local CHAIN_LOG="${LOG_DIR}/${MODEL_SAFE}_${DATASET_PATH##*/}_${DATASET}_${SPLIT}${MODE_SUFFIX}.log"
@@ -439,7 +546,11 @@ run_pipeline() {
                 set -e
                 stage_enabled generate   && run_stage generate_stage && wait_for_bucket
                 stage_enabled transcribe && run_stage transcribe_stage
-                stage_enabled sim && [[ "${CLONE}" == "true" ]] && run_stage sim_stage
+                # Not an `&&` list: under `set -e` a failing wait_for_transcripts must end the chain.
+                if stage_enabled sim && [[ "${CLONE}" == "true" ]]; then
+                    if stage_enabled transcribe; then wait_for_transcripts; fi
+                    run_stage sim_stage
+                fi
                 stage_enabled utmos && utmos_language "${ASR_LANG}" && run_stage utmos_stage
                 stage_enabled komos && [[ "${ASR_LANG}" == ko ]] && run_stage komos_stage
                 true   # ensure subshell exit status is 0 when the last `&&` chain is a skipped stage
@@ -447,6 +558,11 @@ run_pipeline() {
             PIDS+=("$!"); TAGS+=("${DATASET_PATH##*/}/${DATASET}/${SPLIT}"); CHAIN_LOGS+=("${CHAIN_LOG}")
             LANGS+=("${ASR_LANG}"); MANIFEST_NAMES+=("$(basename "${BUCKET_MANIFEST}")")
         done
+        [[ ${#UNSUPPORTED[@]} -gt 0 ]] && echo "Skipped the splits in languages ${MODEL_ID} does not support: ${UNSUPPORTED[*]}"
+        if [[ "${DRY_RUN}" == "true" ]]; then
+            echo "DRY_RUN=true: nothing submitted."
+            continue
+        fi
 
         if [ -n "$ORG_NAME" ]; then
             echo "For live status see: https://huggingface.co/organizations/${ORG_NAME}/settings/jobs"
@@ -454,6 +570,9 @@ run_pipeline() {
             echo "For live status see: https://huggingface.co/settings/jobs"
         fi
 
-        _wait_and_score || true   # keep going to the next model on failure
+        _wait_and_score || PIPELINE_FAILED=1   # keep going to the next model on failure
     done
+    # Exit status for callers (e.g. scripts/schedule_runs.py): non-zero if any model's chains or
+    # scoring failed, so a partly failed run is not recorded as done.
+    return "${PIPELINE_FAILED:-0}"
 }

@@ -1,5 +1,7 @@
 *.jsonl
 *.json
+# Hub commit each model is pinned to in the jobs (scripts/pin_revisions.py)
+!model_revisions.json
 *.wav
 
 # Byte-compiled / optimized / DLL files

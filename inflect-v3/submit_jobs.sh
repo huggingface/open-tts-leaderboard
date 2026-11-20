@@ -16,7 +16,7 @@ DEFAULT_STAGES="generate transcribe utmos"           # no SIM (fixed voice, no r
 RUN_EVAL_INJECT="$(inject_run_eval)"
 
 # English-only (model card: `language: [en]`); other splits are skipped rather than read with English G2P.
-supports_language() { [[ "$1" == "en" ]]; }
+SUPPORTED_LANGUAGES="en"
 
 # ── Per-model device: Atom is CPU-only; Mini and Micro run on the h200 GPU ──
 inflect_v3_device() {
@@ -60,13 +60,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" ────────────────────
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 # Mini-v3 is already published (see tts_leaderboard_results PR #133); default to the two newer

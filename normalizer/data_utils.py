@@ -2,8 +2,13 @@ import re
 
 import num2words
 from normalizer import EnglishTextNormalizer, BasicMultilingualTextNormalizer
+from normalizer.arabic import fold_arabic
 from normalizer.persian import PersianTextNormalizer
 from normalizer.hindi import normalize_hi_numbers_after, normalize_hi_numbers_before
+
+
+# num2words's code where it differs from ours (Norwegian Bokmål is `no` there).
+_NUM2WORDS_CODE = {"nb": "no"}
 
 
 class MultilingualNormalizer(BasicMultilingualTextNormalizer):
@@ -16,6 +21,7 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
         # Join space-separated thousand groups (e.g. "10 000" -> "10000")
         text = re.sub(r"(\d)\s+(\d{3})\b", r"\1\2", text)
         # Convert remaining digit sequences to words
+        lang = _NUM2WORDS_CODE.get(lang, lang)
         def _replace(m):
             try:
                 return num2words.num2words(int(m.group()), lang=lang)
@@ -44,6 +50,8 @@ class MultilingualNormalizer(BasicMultilingualTextNormalizer):
         elif lang == "hi":
             s = normalize_hi_numbers_before(s)
         s = super().__call__(s)
+        if lang == "ar":
+            s = fold_arabic(s)
         if lang == "hi":
             s = normalize_hi_numbers_after(s)
         elif lang is not None:

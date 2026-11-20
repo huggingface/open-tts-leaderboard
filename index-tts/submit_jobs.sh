@@ -18,9 +18,8 @@ SUPPORTS_VOICE_CLONE=true
 
 # ── Languages IndexTTS-2.5 covers (model card: zh, en, ja, es, ar) ───────────
 # An unsupported `lang` does NOT raise upstream, it just produces wrong-language audio, so gate
-# the combos here. Matched against asr_language (so `zh_hard` / `hard_zh` match `zh`).
-INDEXTTS_LANGUAGES=" zh en ja es ar "
-supports_language() { [[ "${INDEXTTS_LANGUAGES}" == *" $1 "* ]]; }
+# the combos here.
+SUPPORTED_LANGUAGES="zh en ja es ar"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id batch_size". ──
 # No batched API; --batch_size only chunks manifest writing / resume. See run_eval.py.
@@ -46,23 +45,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-# asr_language doubles as the TTS `lang` tag (--language above).
-DATASET_CONFIGS=(
-    "tts en en"
-    "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot zh zh ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts zh zh ${MINIMAX_EVAL_PATH}"
-    "tts ja ja ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts ar ar ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
 MODEL_CONFIGS=(
