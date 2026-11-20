@@ -11,7 +11,8 @@ Layout (Kaldi-style, as CV3-Eval; scp paths are relative to the checkout root):
   - data/{clean_mini,in-the-wild_mini}/panel.json   {"langs": {<lang>: {<uttid>: weight}}, ...}
 
 Each panel becomes a config (`clean`, `in_the_wild`), each language a split named by its ZTTS2-Eval code. Every
-row carries its panel weight; the weights also go to normalizer/ztts2_eval_mini_weights.json (see WEIGHTS_PATH).
+row carries its panel weight (`weight` column), so ZTTS2-Eval's weighted panel estimate can be reproduced from the
+dataset; the leaderboard's scoring does not use it.
 The In-The-Wild held-out target recordings are not included.
 
 Pushed **public** by default: FLEURS-R is CC-BY-4.0 and VoxBlink2 CC-BY-NC-SA-4.0, both of which allow
@@ -35,7 +36,6 @@ python scripts/prepare_ztts2_eval_mini.py [repo_id] --ztts2-root <PATH>/ZTTS2-Ev
 
 import argparse
 import json
-import subprocess
 from pathlib import Path
 
 from datasets import Audio, Dataset, Features, Value
@@ -43,7 +43,6 @@ from huggingface_hub import DatasetCard
 
 from prepare_cv3_eval import parse_leaf
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Split names of the two panels, in ZTTS2-Eval's order (utils/benchmark.py CLEAN_LANGS / ITW_LANGS).
 PANEL_LANGS = {
@@ -53,9 +52,6 @@ PANEL_LANGS = {
     "in_the_wild": ("en", "zh", "de", "es", "fr", "it", "ja", "ko", "ru", "pt", "ar", "hi", "id", "tr", "tl",
                     "pl", "th", "nl", "uk", "vi"),
 }
-# {config: {split: {item id: panel weight}}}. Not used by the leaderboard's scoring, which averages every item
-# equally as for the other datasets; kept so ZTTS2-Eval's weighted panel estimate can be reproduced.
-WEIGHTS_PATH = REPO_ROOT / "normalizer" / "ztts2_eval_mini_weights.json"
 
 DEFAULT_REPO_ID = "hf-audio/ztts2_eval_mini"
 # Config -> panel dir under the checkout's data/.
@@ -120,8 +116,8 @@ Used by the [Open TTS Leaderboard](https://github.com/huggingface/open-tts-leade
 """
 
 
-def write_weights(root: Path) -> dict:
-    """Read both panels' weights, check their languages, and write WEIGHTS_PATH. Returns {config: {split: {id: w}}}."""
+def read_weights(root: Path) -> dict:
+    """Read both panels' weights and check their languages. Returns {config: {split: {item id: weight}}}."""
     weights = {}
     for config, panel_dir in PANEL_DIRS.items():
         with open(root / "data" / panel_dir / "panel.json", encoding="utf-8") as f:
@@ -130,15 +126,6 @@ def write_weights(root: Path) -> dict:
         if diff:
             raise SystemExit(f"{panel_dir}/panel.json languages differ from PANEL_LANGS['{config}']: {sorted(diff)}")
         weights[config] = panel["langs"]
-    try:
-        commit = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True,
-                                check=True).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        commit = None
-    with open(WEIGHTS_PATH, "w", encoding="utf-8") as f:
-        json.dump({"source_commit": commit, **weights}, f, indent=1, sort_keys=True)
-        f.write("\n")
-    print(f"Wrote {WEIGHTS_PATH} (ZTTS2-Eval commit {commit})")
     return weights
 
 
@@ -183,7 +170,7 @@ def main():
         raise SystemExit(f"{root / 'data'} not found — pass --ztts2-root pointing at the ZTTS2-Eval checkout.")
 
     # Always written (it is a local file): scoring needs it whether or not anything is pushed.
-    weights = write_weights(root)
+    weights = read_weights(root)
 
     totals = {}
     for config in args.configs:

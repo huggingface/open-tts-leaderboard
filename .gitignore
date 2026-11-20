@@ -1,7 +1,5 @@
 *.jsonl
 *.json
-# ZTTS2-Eval Mini panel weights (written by scripts/prepare_ztts2_eval_mini.py; not used in scoring)
-!normalizer/ztts2_eval_mini_weights.json
 # Hub commit each model is pinned to in the jobs (scripts/pin_revisions.py)
 !model_revisions.json
 *.wav
