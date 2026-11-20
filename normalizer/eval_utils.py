@@ -11,6 +11,40 @@ from collections import defaultdict
 from kaldialign import batch_error_rate
 
 
+# A row is untranscribed when stage 2 never filled it: stage 1 writes `"pred_text": ""` and
+# transformers/transcribe.py stamps every row it transcribes with `asr_model` (older manifests
+# predate the stamp, so a non-empty pred_text also counts). Up to this share of empty, unstamped
+# rows is tolerated (the ASR can legitimately return nothing for a clip of an older manifest); more
+# means the manifest was never transcribed, or was regenerated after it was, and must not be scored.
+MAX_UNTRANSCRIBED_FRACTION = 0.2
+
+
+def untranscribed_fraction(rows):
+    """Share of `rows` that the ASR stage has not filled (see MAX_UNTRANSCRIBED_FRACTION)."""
+    if not rows:
+        return 0.0
+    missing = sum(1 for r in rows if not (r.get("pred_text") or "").strip() and "asr_model" not in r)
+    return missing / len(rows)
+
+
+def capped_error_rate(references, predictions, merge_compounds=False):
+    """Pooled error rate with each utterance's errors capped at its reference length.
+
+    Like kaldialign's `batch_error_rate` (total errors / total reference tokens), except that one
+    utterance can contribute at most as many errors as it has reference tokens, i.e. a per-file
+    error rate of at most 100%. A runaway or hallucinated generation full of
+    insertions would otherwise outweigh the rest of the split. `ins`/`del`/`sub` are the uncapped
+    totals, for diagnostics.
+    """
+    ins = dele = sub = errors = total = 0
+    for ref, hyp in zip(references, predictions):
+        one = batch_error_rate([ref], [hyp], merge_compounds=merge_compounds)
+        ins, dele, sub = ins + one["ins"], dele + one["del"], sub + one["sub"]
+        errors += min(one["ins"] + one["del"] + one["sub"], len(ref))
+        total += len(ref)
+    return {"ins": ins, "del": dele, "sub": sub, "err_rate": errors / total if total else 0.0}
+
+
 # ── Chinese / CJK scoring (CER instead of WER) ────────────────────────────────
 # CJK text has no word delimiters, so WER is meaningless; score per character (CER), as
 # seed-tts-eval's run_wer.py does for zh (it still labels it "WER").
@@ -111,14 +145,20 @@ _CJK_NUMERAL_MAP = str.maketrans({
 })
 
 
-def cjk_normalizer(text: str, fold_homophones: bool = False, fold_numerals: bool = False, language: str = None) -> str:
+# An apostrophe not between two Latin letters.
+_QUOTE_APOSTROPHE = re.compile(r"(?<![a-z])'|'(?![a-z])")
+
+
+def cjk_normalizer(text: str, fold_homophones: bool = False, fold_numerals: bool = False, language: str = None,
+                   keep_spaces: bool = False) -> str:
     """Normalize a CJK string for character-level (CER) scoring.
 
     Mirrors seed-tts-eval's `process_one`: strip punctuation, fold traditional→simplified (Chinese
     only), lowercase embedded Latin, and drop whitespace. With both flags off this is the strict,
     seed-tts-eval-comparable form. `fold_homophones` applies CJK_HOMOPHONE_GROUPS (Chinese) or
     katakana→hiragana (Japanese); `fold_numerals` maps Arabic digits to CJK numerals. Every fold is
-    length-preserving and applied to both sides, so it can only lower the error rate.
+    length-preserving and applied to both sides, so it can only lower the error rate. `keep_spaces` keeps
+    single spaces between words (for cjk_tokens) instead of dropping all whitespace.
     """
     text = unicodedata.normalize("NFKC", text)
     # Chinese only: on Japanese, zhconv rewrites kanji (俳優 → 俳优); on Korean it folds hanja.
@@ -126,14 +166,31 @@ def cjk_normalizer(text: str, fold_homophones: bool = False, fold_numerals: bool
     if is_chinese:
         text = _to_simplified(text)
     text = text.lower()
-    # Drop every mark/symbol/punctuation (CJK and ASCII); keep the apostrophe, as seed-tts-eval does.
+    # Drop every mark/symbol/punctuation (CJK and ASCII); keep the apostrophe of a Latin word ("what's"),
+    # as seed-tts-eval does. Any other apostrophe is a quote mark (Korean '…' quotes), so it goes too.
+    text = _QUOTE_APOSTROPHE.sub("", text)
     text = "".join(c for c in text if c == "'" or unicodedata.category(c)[0] not in "MSP")
     # The Chinese groups must not run on Japanese (的/地/得 are distinct morphemes there).
     if fold_homophones:
         text = text.translate(_CJK_HOMOPHONE_MAP if is_chinese else _KATAKANA_TO_HIRAGANA)
     if fold_numerals:
         text = text.translate(_CJK_NUMERAL_MAP)
-    return "".join(text.split())
+    return (" " if keep_spaces else "").join(text.split())
+
+
+# Korean CER tokens: a Latin word is one token, any other character one token each (ZTTS2-Eval's CJK tokenizer).
+_LATIN_WORD_OR_CHAR = re.compile(r"[a-z]+(?:'[a-z]+)*|\S")
+_KOREAN_LANGUAGES = {"ko", "kor"}
+
+
+def cjk_tokens(text: str, fold_homophones: bool = False, fold_numerals: bool = False, language: str = None) -> tuple:
+    """The CER tokens of a CJK string: its cjk_normalizer characters, except that for Korean each Latin word
+    is a single token. Korean text often embeds Latin names that the ASR writes in Hangul (TogiNet / 토기넷);
+    per character, that is one error per Latin letter, a word counts it once."""
+    if language and re.split(r"[_-]", language)[0] in _KOREAN_LANGUAGES:
+        return tuple(_LATIN_WORD_OR_CHAR.findall(
+            cjk_normalizer(text, fold_homophones, fold_numerals, language, keep_spaces=True)))
+    return tuple(cjk_normalizer(text, fold_homophones, fold_numerals, language))
 
 
 def _is_mostly_cjk(texts, threshold: float = 0.5) -> bool:
@@ -258,9 +315,7 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
         csv_only: If True, suppress the per-dataset and composite printouts.
         language: Language code used for normalization (e.g. 'en', 'de', 'fr'). Non-'en' uses
                   ml_normalizer. CJK is scored per character (CER); it is also auto-detected per
-                  manifest from the reference text. ZTTS2-Eval Mini manifests are scored by
-                  normalizer/ztts2.py, which takes the language from the split name; `language`
-                  then only gates UTMOS/KOMOS.
+                  manifest from the reference text.
         manifests: Optional list of manifest file names (basenames or paths) to restrict scoring
                   to. `language` applies to every manifest in a call and only CJK is auto-detected,
                   so multi-language folders must be scored one language per call.
@@ -359,44 +414,35 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
         return model_id, dataset_id
 
     # Compute WER results per dataset, and RTFx over all datasets
-    from normalizer import data_utils, ztts2
+    from normalizer import data_utils
     results = {}
     stale_sim_files = []  # (basename, sim_model) for manifests whose SIM was on the other scale
 
     for result_file in result_files:
         manifest = read_manifest(result_file)
+        missing = untranscribed_fraction(manifest)
+        if missing > MAX_UNTRANSCRIBED_FRACTION:
+            # Scoring it would publish ~100% WER (e.g. a manifest regenerated after transcription).
+            print(f"WARNING: skipping {os.path.basename(result_file)}: {100 * missing:.0f}% of its rows have no "
+                  f"transcript; run the transcribe stage on it first.")
+            continue
         model_id_of_file, dataset_id = parse_filepath(result_file)
-        # ZTTS2-Eval Mini panels are scored as ZTTS2-Eval scores them (normalizer/ztts2.py): their own text
-        # prep and weighted, clipped per-utterance WER instead of the normalization below.
-        panel = ztts2.parse_panel(dataset_id)
-        if panel is not None:
-            try:
-                panel_result = ztts2.score_manifest(manifest, *panel, use_sim=result_file not in sim_unavailable)
-            except ValueError as exc:
-                print(f"WARNING: {os.path.basename(result_file)} not scored: {exc}")
-                continue
-            if panel_result["n_items"] < panel_result["n_panel"]:
-                print(f"NOTE: {os.path.basename(result_file)} covers {panel_result['n_items']}/"
-                      f"{panel_result['n_panel']} items of the ZTTS2-Eval Mini {panel[0]}/{panel[1]} panel; "
-                      f"its estimate is renormalized over them.")
+        raw_references = [datum["text"] for datum in manifest]
+        raw_predictions = [datum["pred_text"] for datum in manifest]
 
-        if panel is None:
-            raw_references = [datum["text"] for datum in manifest]
-            raw_predictions = [datum["pred_text"] for datum in manifest]
+        # CJK is scored per character (CER); detected from `language` or the reference text.
+        use_cer = is_cjk_language(language) or _is_mostly_cjk(raw_references)
+        per_char = not use_cer and language in CHAR_LANGUAGES
 
-            # CJK is scored per character (CER); detected from `language` or the reference text.
-            use_cer = is_cjk_language(language) or _is_mostly_cjk(raw_references)
-            per_char = not use_cer and language in CHAR_LANGUAGES
-
-            if use_cer:
-                # `language` also gates the Chinese-only folds.
-                normalize = lambda t: cjk_normalizer(t, language=language)
-            elif language == "en":
-                normalize = data_utils.normalizer
-            else:
-                normalize = lambda t: data_utils.ml_normalizer(t, lang=language)
-            references = [normalize(t) for t in raw_references]
-            predictions = [normalize(t) for t in raw_predictions]
+        if use_cer:
+            # `language` also gates the Chinese-only folds.
+            normalize = lambda t: cjk_normalizer(t, language=language)
+        elif language == "en":
+            normalize = data_utils.normalizer
+        else:
+            normalize = lambda t: data_utils.ml_normalizer(t, lang=language)
+        references = [normalize(t) for t in raw_references]
+        predictions = [normalize(t) for t in raw_predictions]
 
         time = [datum["time"] for datum in manifest]
         duration = [datum["duration"] for datum in manifest]
@@ -411,59 +457,54 @@ def score_results(directory: str, model_id: str = None, multilingual: bool = Non
         else:
             sims = [datum["sim"] for datum in manifest if isinstance(datum.get("sim"), (int, float))]
         sim = round(100 * sum(sims) / len(sims), 2) if sims else None
-        if panel is not None:
-            sim = panel_result["sim"]
         utmos = read_utmos(result_file, manifest) if language in UTMOS_LANGUAGES else None
         komos = read_komos(result_file, manifest) if language in KOMOS_LANGUAGES else KomosResult()
 
-        if panel is not None:
-            wer, metric, cer_unnormalized = panel_result["wer"], panel_result["metric"], None
-            total_ins, total_del, total_sub = panel_result["ins"], panel_result["del"], panel_result["sub"]
+        if use_cer:
+            # Per-character alignment (a Latin word is one token in Korean, see cjk_tokens; merge_compounds is
+            # moot). The headline CJK number is the lenient CER (homophone + numeral folds), always <= the
+            # unnormalized CER.
+            _lenient = lambda t: cjk_tokens(t, fold_homophones=True, fold_numerals=True, language=language)
+            folded = capped_error_rate(
+                [_lenient(t) for t in raw_references],
+                [_lenient(t) for t in raw_predictions],
+                merge_compounds=False,
+            )
+            total_ins, total_del, total_sub = folded["ins"], folded["del"], folded["sub"]
+            wer = folded["err_rate"]
+
+            # Unnormalized CER, directly comparable with seed-tts-eval's run_wer.py.
+            r = capped_error_rate(
+                [cjk_tokens(t, language=language) for t in raw_references],
+                [cjk_tokens(t, language=language) for t in raw_predictions],
+                merge_compounds=False,
+            )
+            cer_unnormalized = round(100 * r["err_rate"], 2)
         else:
-            if use_cer:
-                # Per-character alignment (merge_compounds is moot). The headline CJK number is the
-                # lenient CER (homophone + numeral folds), always <= the unnormalized CER.
-                _lenient = lambda t: cjk_normalizer(t, fold_homophones=True, fold_numerals=True, language=language)
-                folded = batch_error_rate(
-                    [tuple(_lenient(t)) for t in raw_references],
-                    [tuple(_lenient(t)) for t in raw_predictions],
-                    merge_compounds=False,
-                )
-                total_ins, total_del, total_sub = folded["ins"], folded["del"], folded["sub"]
-                wer = folded["err_rate"]
-
-                # Unnormalized CER, directly comparable with seed-tts-eval's run_wer.py.
-                r = batch_error_rate(
-                    [tuple(ref) for ref in references],
-                    [tuple(pred) for pred in predictions],
-                    merge_compounds=False,
-                )
-                cer_unnormalized = round(100 * r["err_rate"], 2)
+            cer_unnormalized = None
+            # Hyphens are inaudible: fold them to whitespace on both sides. ml_normalizer keeps
+            # them, and num2words hyphenates e.g. French numerals ("dix-sept").
+            references = [r.replace("-", " ") for r in references]
+            predictions = [p.replace("-", " ") for p in predictions]
+            if multilingual:
+                # Pre-fold compound boundaries (e.g. German compounds); complements merge_compounds
+                # below, which also catches split compounds adjacent to other errors.
+                references, predictions = normalize_compound_pairs(references, predictions)
+            # merge_compounds=True so that split compounds (e.g. "white paper" vs "whitepaper")
+            # count as 0 errors in either direction. Per-utterance errors are capped at the
+            # reference length (see capped_error_rate).
+            if per_char:
+                refs_split  = [tuple(r.replace(" ", "")) for r in references]
+                preds_split = [tuple(p.replace(" ", "")) for p in predictions]
             else:
-                cer_unnormalized = None
-                # Hyphens are inaudible: fold them to whitespace on both sides. ml_normalizer keeps
-                # them, and num2words hyphenates e.g. French numerals ("dix-sept").
-                references = [r.replace("-", " ") for r in references]
-                predictions = [p.replace("-", " ") for p in predictions]
-                if multilingual:
-                    # Pre-fold compound boundaries (e.g. German compounds); complements merge_compounds
-                    # below, which also catches split compounds adjacent to other errors.
-                    references, predictions = normalize_compound_pairs(references, predictions)
-                # Use kaldialign batch_error_rate with merge_compounds=True so that
-                # split compounds (e.g. "white paper" vs "whitepaper") count as
-                # 0 errors in either direction.
-                if per_char:
-                    refs_split  = [tuple(r.replace(" ", "")) for r in references]
-                    preds_split = [tuple(p.replace(" ", "")) for p in predictions]
-                else:
-                    refs_split  = [tuple(r.split()) for r in references]
-                    preds_split = [tuple(p.split()) for p in predictions]
-                r = batch_error_rate(refs_split, preds_split, merge_compounds=not per_char)
-                total_ins, total_del, total_sub = r["ins"], r["del"], r["sub"]
-                wer = r["err_rate"]
+                refs_split  = [tuple(r.split()) for r in references]
+                preds_split = [tuple(p.split()) for p in predictions]
+            r = capped_error_rate(refs_split, preds_split, merge_compounds=not per_char)
+            total_ins, total_del, total_sub = r["ins"], r["del"], r["sub"]
+            wer = r["err_rate"]
 
-            wer = round(100 * wer, 2)
-            metric = "CER" if use_cer or per_char else "WER"
+        wer = round(100 * wer, 2)
+        metric = "CER" if use_cer or per_char else "WER"
 
         if compute_rtfx:
             audio_length = sum(duration)

@@ -57,7 +57,11 @@ from breeze_infer.runtime import (  # noqa: E402
 )
 from breeze_infer.templates import get_template, prepare_inputs  # noqa: E402
 from models.fast_streaming import FastBreezeStreamingRuntime, FastStreamingConfig  # noqa: E402
-from models.warmup_profile import load_warmup_profile  # noqa: E402
+from models.warmup_profile import (  # noqa: E402
+    BackbonePrefillWarmupGraph,
+    TextEncoderWarmupGraph,
+    load_warmup_profile,
+)
 
 # infer.py's own ceilings, which override the checkpoint's generation_config (max_new_tokens=750).
 MAX_NEW_TOKENS = 1500
@@ -70,6 +74,32 @@ DEFAULT_INSTRUCTIONS = {
     "en": "Speak clearly and naturally.",
     "zh": "请用清晰自然的语气朗读。",
 }
+
+
+def _cover_all_lengths(profile):
+    """Declare every batch size's graphs up to the profile's longest length (step: its shortest).
+
+    configs/fast.json stops batch-1 graphs at 256 tokens (batch 2, the CFG path, goes to 512), and the
+    frozen runtime raises on an undeclared shape, so a longer reference prompt in no-CFG voice cloning
+    (e.g. ZTTS2-Eval's) failed. Declaring the missing shapes only adds graphs, captured in the
+    untimed warmup; shapes the profile already had are unchanged.
+    """
+    def extend(graphs, size_of, length_of, make):
+        lengths = sorted({length_of(g) for g in graphs})
+        step, longest = lengths[0], lengths[-1]
+        have = {(size_of(g), length_of(g)) for g in graphs}
+        extra = [make(b, n) for b in sorted({size_of(g) for g in graphs})
+                 for n in range(step, longest + 1, step) if (b, n) not in have]
+        return tuple(graphs) + tuple(extra)
+
+    return replace(
+        profile,
+        text_encoder_graphs=extend(profile.text_encoder_graphs, lambda g: g.batch_size, lambda g: g.token_length,
+                                   lambda b, n: TextEncoderWarmupGraph(batch_size=b, token_length=n)),
+        backbone_prefill_graphs=extend(profile.backbone_prefill_graphs, lambda g: g.branch_batch_size,
+                                       lambda g: g.sequence_length,
+                                       lambda b, n: BackbonePrefillWarmupGraph(branch_batch_size=b, sequence_length=n)),
+    )
 
 
 def _default_instruction(language: str) -> str:
@@ -107,6 +137,7 @@ def main(args):
     if runtime.fast_enabled:
         profile = load_warmup_profile(BREEZE_REPO / "configs" / "fast.json")
         profile = replace(profile, codec_chunk_frames=runtime.codec_chunk_frames)
+        profile = _cover_all_lengths(profile)
         manifest = runtime.warmup_from_profile(profile)
         print(f"Fast-path warmup: {manifest['total_elapsed_ms']:.2f} ms")
 

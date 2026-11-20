@@ -58,7 +58,8 @@ MAX_EVAL_SAMPLES="${MAX_EVAL_SAMPLES:--1}"   # -1 = all; set e.g. 8 to smoke-tes
 # Restrict a run to some of the backend's datasets / languages (see "Datasets" below), e.g.
 # ONLY_DATASETS="minimax" ONLY_LANGS="de fr". Datasets by registry name (seed_tts cv3 minimax neyshekar
 # ztts2_mini_clean ztts2_mini_itw) or repo name (minimax_eval; ztts2_eval_mini covers both ZTTS2 panels).
-# Empty (default) runs every dataset and supported language.
+# Empty (default) runs every dataset and supported language, except the opt-in ztts2_mini_itw (run it by
+# naming it here).
 ONLY_LANGS="${ONLY_LANGS:-}"
 ONLY_DATASETS="${ONLY_DATASETS:-}"
 # DRY_RUN=true: print the (model, dataset, split) combos a run would submit, and submit nothing.
@@ -103,7 +104,7 @@ SCORER_IMAGE="hf.co/spaces/${SPACE}"
 # into its splits from the registry below and keeps the splits in a supported language, so adding a
 # dataset or a language never touches a backend.
 #   SUPPORTED_LANGUAGES="en zh fr"           # default (empty): every language
-#   DATASETS="seed_tts cv3 minimax"          # optional, to leave a whole dataset out (default: all)
+#   DATASETS="seed_tts cv3 minimax"          # optional, to leave a whole dataset out (default: all but OPT_IN_DATASETS)
 # Backends with per-model or per-mode rules override supports_language() (calling
 # language_supported for the SUPPORTED_LANGUAGES check). A run can be narrowed further with ONLY_DATASETS
 # (registry names, or the repo names) and ONLY_LANGS.
@@ -137,12 +138,21 @@ dataset_splits() {
         ztts2_mini_itw)   printf 'in_the_wild/%s ' en zh de es fr it ja ko ru pt ar hi id tr tl:fil pl th nl uk vi ;;
     esac
 }
-DATASETS="${DATASET_NAMES}"
+# Opt-in datasets: wired in, but not run by default (not on the leaderboard yet); a run includes one only
+# when ONLY_DATASETS names it (by registry name, or ztts2_eval_mini for both ZTTS2 panels), e.g.
+# ONLY_DATASETS="ztts2_mini_itw".
+OPT_IN_DATASETS="ztts2_mini_itw"
+DATASETS=""
+for _name in ${DATASET_NAMES}; do
+    [[ " ${OPT_IN_DATASETS} " == *" ${_name} "* ]] || DATASETS+="${DATASETS:+ }${_name}"
+done
+unset _name
 SUPPORTED_LANGUAGES=""
 DATASET_CONFIGS=()
 
 # expand_datasets → appends one "config split asr_language dataset_path name" line to DATASET_CONFIGS per split of
-# every dataset in DATASETS (registry order). Language gating happens per model, in run_pipeline.
+# every dataset in DATASETS (registry order), plus any opt-in dataset ONLY_DATASETS names. Language gating
+# happens per model, in run_pipeline.
 expand_datasets() {
     local name entry config split lang
     for name in ${DATASETS}; do
@@ -150,7 +160,10 @@ expand_datasets() {
             { echo "ERROR: unknown dataset '${name}' in DATASETS (known: ${DATASET_NAMES})." >&2; exit 1; }
     done
     for name in ${DATASET_NAMES}; do
-        [[ " ${DATASETS} " == *" ${name} "* ]] || continue
+        if [[ " ${DATASETS} " != *" ${name} "* ]]; then
+            [[ " ${OPT_IN_DATASETS} " == *" ${name} "* ]] || continue
+            [[ " ${ONLY_DATASETS} " == *" ${name} "* || " ${ONLY_DATASETS} " == *" $(basename "$(dataset_repo "${name}")") "* ]] || continue
+        fi
         for entry in $(dataset_splits "${name}"); do
             config="${entry%%/*}"; split="${entry#*/}"; lang="${split#*:}"; split="${split%%:*}"
             DATASET_CONFIGS+=("${config} ${split} ${lang} $(dataset_repo "${name}") ${name}")
@@ -159,7 +172,7 @@ expand_datasets() {
 }
 
 utmos_language() { [[ " ${UTMOS_LANGS} " == *" $1 "* ]]; }
-# ZTTS2-Eval Mini lines are transcribed the way ZTTS2-Eval scores them (transcribe.py --asr_profile ztts2:
+# ZTTS2-Eval Mini lines are transcribed with ZTTS2-Eval's ASR choice (transcribe.py --asr_profile ztts2:
 # Whisper-large-v3 / Qwen3-ASR routed per language); every other dataset keeps Qwen3-ASR.
 asr_profile() { if [[ "${DATASET_PATH##*/}" == "ztts2_eval_mini" ]]; then echo ztts2; else echo leaderboard; fi; }
 stage_enabled() { [[ " ${STAGES} " == *" $1 "* ]]; }
@@ -189,21 +202,29 @@ inject_dir() {
 # keeping any PYTHONPATH the image already sets.
 SCRIPTS_PYTHONPATH='export PYTHONPATH=/app/scripts${PYTHONPATH:+:${PYTHONPATH}} &&'
 
+# Snippet pinning Hub model downloads in the job (every stage): scripts/hf_pin/sitecustomize.py, first
+# on PYTHONPATH, maps a download of a repo listed in model_revisions.json at `main` to its pinned
+# commit and logs `[hf-pin] UNPINNED <repo>` for unlisted ones (HF_PIN_STRICT=true refuses them).
+# Maintain the list with scripts/pin_revisions.py.
+HF_PIN_STRICT="${HF_PIN_STRICT:-false}"
+HF_PIN_INJECT="$(inject_cmd_gz "${REPO_ROOT}/scripts/hf_pin/sitecustomize.py" /app/hf_pin/sitecustomize.py) $(inject_cmd_gz "${REPO_ROOT}/model_revisions.json" /app/hf_pin/model_revisions.json) export HF_PIN_STRICT=${HF_PIN_STRICT} PYTHONPATH=/app/hf_pin\${PYTHONPATH:+:\${PYTHONPATH}} &&"
+
 # inject_run_eval → `... &&` snippet recreating the sourcing backend's run_eval.py at
-# /app/<backend>/ plus the shared scripts/run_eval_utils.py it imports, on PYTHONPATH. Backends set
-# RUN_EVAL_INJECT="$(inject_run_eval)".
+# /app/<backend>/ plus the shared scripts/run_eval_utils.py it imports, on PYTHONPATH, with the Hub
+# downloads pinned (HF_PIN_INJECT). Backends set RUN_EVAL_INJECT="$(inject_run_eval)".
 inject_run_eval() {
-    echo "$(inject_cmd "${BACKEND_DIR}/run_eval.py" "/app/$(basename "${BACKEND_DIR}")/run_eval.py")" \
+    echo "${HF_PIN_INJECT}" \
+         "$(inject_cmd "${BACKEND_DIR}/run_eval.py" "/app/$(basename "${BACKEND_DIR}")/run_eval.py")" \
          "$(inject_cmd "${REPO_ROOT}/scripts/run_eval_utils.py" /app/scripts/run_eval_utils.py)" \
          "${SCRIPTS_PYTHONPATH}"
 }
 
 # Shared scorer-stage injects (transcribe.py / score_similarity.py live in transformers/).
-TRANSCRIBE_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/transcribe.py" /app/transformers/transcribe.py)"
-SIM_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/score_similarity.py" /app/transformers/score_similarity.py)"
-UTMOS_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/score_utmos.py" /app/transformers/score_utmos.py)"
+TRANSCRIBE_INJECT="${HF_PIN_INJECT} $(inject_cmd "${REPO_ROOT}/transformers/transcribe.py" /app/transformers/transcribe.py)"
+SIM_INJECT="${HF_PIN_INJECT} $(inject_cmd "${REPO_ROOT}/transformers/score_similarity.py" /app/transformers/score_similarity.py)"
+UTMOS_INJECT="${HF_PIN_INJECT} $(inject_cmd "${REPO_ROOT}/transformers/score_utmos.py" /app/transformers/score_utmos.py)"
 
-KOMOS_INJECT="$(inject_cmd "${REPO_ROOT}/transformers/score_komos.py" /app/transformers/score_komos.py)"
+KOMOS_INJECT="${HF_PIN_INJECT} $(inject_cmd "${REPO_ROOT}/transformers/score_komos.py" /app/transformers/score_komos.py)"
 
 # ── Default hooks (backends override as needed) ─────────────────────────────
 # voice_clone_mode [suffix_prefix] — sets CLONE / MODE_SUFFIX / VOICE_CLONE_FLAG from VOICE_CLONE.
@@ -280,15 +301,35 @@ wait_for_bucket() {
     local rel="${BUCKET_MANIFEST#/results/}" deadline=$((SECONDS + BUCKET_WAIT_TIMEOUT)) want have
     while (( SECONDS < deadline )); do
         want=$(hf buckets cp "hf://buckets/${RESULTS_BUCKET}/${rel}" - 2>/dev/null |
-            grep -oE '"(audio|prompt_audio)_filepath": "[^"]+"' | cut -d'"' -f4 | sort -u)
+            grep -oE '"(audio|prompt_audio)_filepath": "[^"]+"' | cut -d'"' -f4 | sort -u) || true
         if [[ -n "${want}" ]]; then
             have=$(hf buckets list "${RESULTS_BUCKET}/${MODEL_FOLDER}" -R 2>/dev/null |
-                awk '{print $NF}' | sed "s|^${MODEL_FOLDER}/||" | sort -u)
+                awk '{print $NF}' | sed "s|^${MODEL_FOLDER}/||" | sort -u) || true
             [[ -z "$(comm -23 <(echo "${want}") <(echo "${have}"))" ]] && return 0
         fi
         sleep 30
     done
     echo "── ${rel}: stage-1 outputs still not in the bucket after ${BUCKET_WAIT_TIMEOUT}s; giving up."
+    return 1
+}
+
+# ── Wait for stage-2 transcripts before SIM ─────────────────────────────────
+# SIM forks the manifest (pred_text included), and a transcribe job's in-place writes can reach the
+# bucket after `hf jobs run` returns: a SIM job started then forks the untranscribed copy, which
+# scores as 100% WER. Poll until the bucket manifest is transcribed, by the rule scoring uses
+# (normalizer.eval_utils.untranscribed_fraction): stage 1 writes `"pred_text": ""` on every row and
+# transcribe.py stamps each row it fills with `asr_model`; at most 20% empty, unstamped rows.
+wait_for_transcripts() {
+    local rel="${BUCKET_MANIFEST#/results/}" deadline=$((SECONDS + BUCKET_WAIT_TIMEOUT))
+    while (( SECONDS < deadline )); do
+        hf buckets cp "hf://buckets/${RESULTS_BUCKET}/${rel}" - 2>/dev/null | python3 -c '
+import json, sys
+rows = [json.loads(line) for line in sys.stdin if line.strip()]
+missing = sum(1 for r in rows if not (r.get("pred_text") or "").strip() and "asr_model" not in r)
+sys.exit(0 if rows and missing <= 0.2 * len(rows) else 1)' && return 0
+        sleep 30
+    done
+    echo "── ${rel}: transcripts still not in the bucket after ${BUCKET_WAIT_TIMEOUT}s; giving up before SIM."
     return 1
 }
 
@@ -307,13 +348,16 @@ transcribe_stage() {
 sim_stage() {
     local SIM_OVERWRITE_FLAG=""
     { [[ "${SIM_OVERWRITE}" == "true" ]] || stage_enabled generate; } && SIM_OVERWRITE_FLAG=" --overwrite"
+    # In-job backstop for the bucket gate: the job's mount can still serve the untranscribed copy.
+    local SIM_WAIT_FLAG=""
+    stage_enabled transcribe && SIM_WAIT_FLAG=" --wait_for_transcripts=${BUCKET_WAIT_TIMEOUT}"
     hf jobs run \
         --flavor "${SIM_FLAVOR}" --timeout 4h --secrets HF_TOKEN \
         --env PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True" ${NAMESPACE_ARG} \
         --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${SCORER_IMAGE}" \
         bash -c "
             ${SIM_INJECT}
-            python /app/transformers/score_similarity.py --manifest_path=${BUCKET_MANIFEST} --sim_backend=${SIM_BACKEND} --batch_size=${SIM_BATCH_SIZE} --max_audio_seconds=${MAX_AUDIO_SECONDS} --device=cuda:0${SIM_OVERWRITE_FLAG}
+            python /app/transformers/score_similarity.py --manifest_path=${BUCKET_MANIFEST} --sim_backend=${SIM_BACKEND} --batch_size=${SIM_BATCH_SIZE} --max_audio_seconds=${MAX_AUDIO_SECONDS} --device=cuda:0${SIM_OVERWRITE_FLAG}${SIM_WAIT_FLAG}
         "
 }
 utmos_stage() {
@@ -502,7 +546,11 @@ run_pipeline() {
                 set -e
                 stage_enabled generate   && run_stage generate_stage && wait_for_bucket
                 stage_enabled transcribe && run_stage transcribe_stage
-                stage_enabled sim && [[ "${CLONE}" == "true" ]] && run_stage sim_stage
+                # Not an `&&` list: under `set -e` a failing wait_for_transcripts must end the chain.
+                if stage_enabled sim && [[ "${CLONE}" == "true" ]]; then
+                    if stage_enabled transcribe; then wait_for_transcripts; fi
+                    run_stage sim_stage
+                fi
                 stage_enabled utmos && utmos_language "${ASR_LANG}" && run_stage utmos_stage
                 stage_enabled komos && [[ "${ASR_LANG}" == ko ]] && run_stage komos_stage
                 true   # ensure subshell exit status is 0 when the last `&&` chain is a skipped stage
@@ -522,6 +570,9 @@ run_pipeline() {
             echo "For live status see: https://huggingface.co/settings/jobs"
         fi
 
-        _wait_and_score || true   # keep going to the next model on failure
+        _wait_and_score || PIPELINE_FAILED=1   # keep going to the next model on failure
     done
+    # Exit status for callers (e.g. scripts/schedule_runs.py): non-zero if any model's chains or
+    # scoring failed, so a partly failed run is not recorded as done.
+    return "${PIPELINE_FAILED:-0}"
 }

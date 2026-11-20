@@ -11,7 +11,7 @@ Layout (Kaldi-style, as CV3-Eval; scp paths are relative to the checkout root):
   - data/{clean_mini,in-the-wild_mini}/panel.json   {"langs": {<lang>: {<uttid>: weight}}, ...}
 
 Each panel becomes a config (`clean`, `in_the_wild`), each language a split named by its ZTTS2-Eval code. Every
-row carries its panel weight; the weights also go to normalizer/ztts2_eval_mini_weights.json, which scoring reads.
+row carries its panel weight; the weights also go to normalizer/ztts2_eval_mini_weights.json (see WEIGHTS_PATH).
 The In-The-Wild held-out target recordings are not included.
 
 Pushed **public** by default: FLEURS-R is CC-BY-4.0 and VoxBlink2 CC-BY-NC-SA-4.0, both of which allow
@@ -36,7 +36,6 @@ python scripts/prepare_ztts2_eval_mini.py [repo_id] --ztts2-root <PATH>/ZTTS2-Ev
 import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 from datasets import Audio, Dataset, Features, Value
@@ -45,9 +44,18 @@ from huggingface_hub import DatasetCard
 from prepare_cv3_eval import parse_leaf
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))  # so `from normalizer import ...` resolves regardless of cwd
 
-from normalizer.ztts2 import PANEL_LANGS, WEIGHTS_PATH  # noqa: E402
+# Split names of the two panels, in ZTTS2-Eval's order (utils/benchmark.py CLEAN_LANGS / ITW_LANGS).
+PANEL_LANGS = {
+    "clean": ("en", "zh", "de", "es", "fr", "it", "ja", "ko", "ru", "pt", "ar", "hi", "tr", "pl", "id", "th",
+              "fil", "nl", "vi", "cs", "sv", "da", "fi", "el", "hu", "ro", "uk", "nb", "he", "bg", "hr", "sk",
+              "ca", "ms", "fa"),
+    "in_the_wild": ("en", "zh", "de", "es", "fr", "it", "ja", "ko", "ru", "pt", "ar", "hi", "id", "tr", "tl",
+                    "pl", "th", "nl", "uk", "vi"),
+}
+# {config: {split: {item id: panel weight}}}. Not used by the leaderboard's scoring, which averages every item
+# equally as for the other datasets; kept so ZTTS2-Eval's weighted panel estimate can be reproduced.
+WEIGHTS_PATH = REPO_ROOT / "normalizer" / "ztts2_eval_mini_weights.json"
 
 DEFAULT_REPO_ID = "hf-audio/ztts2_eval_mini"
 # Config -> panel dir under the checkout's data/.
@@ -76,7 +84,8 @@ See [DATA_LICENSE.md]({LICENSE_LINK}) for the terms of each source.
 
 **Panel weights.** `weight` is the item's panel weight; the weights sum to 1 per split. A language's estimate of the
 full ZTTS2-Eval score is the weighted mean, over its items, of the per-utterance WER clipped at 100% (CER for `zh`,
-`ja`, `ko`, `th`), as ZTTS2-Eval's `scripts/coreset/score_panel.py` computes it.
+`ja`, `ko`, `th`), as ZTTS2-Eval's `scripts/coreset/score_panel.py` computes it. The Open TTS Leaderboard does
+not use the weights: it scores each split like its other datasets, with every item counted equally.
 
 **Changes:** reorganized from the ZTTS2-Eval checkout's `data/clean_mini/` and `data/in-the-wild_mini/` by
 [`scripts/prepare_ztts2_eval_mini.py`](https://github.com/huggingface/open-tts-leaderboard/blob/main/scripts/prepare_ztts2_eval_mini.py).

@@ -13,7 +13,7 @@ SGLANG_PORT="${SGLANG_PORT:-8000}"
 WARMUP_STEPS="${WARMUP_STEPS:-2}"   # untimed warm-up batches
 # gen FLAVOR (h200) is set centrally in tts_jobs_common.sh for RTFx comparability — don't override.
 # run_eval.py is large: gzip it, since a job body is one `bash -c` argument (128 KiB cap).
-RUN_EVAL_INJECT="$(inject_cmd_gz "${BACKEND_DIR}/run_eval.py" /app/fishaudio-drama-3/run_eval.py) $(inject_cmd_gz "${REPO_ROOT}/scripts/run_eval_utils.py" /app/scripts/run_eval_utils.py) ${SCRIPTS_PYTHONPATH}"
+RUN_EVAL_INJECT="${HF_PIN_INJECT} $(inject_cmd_gz "${BACKEND_DIR}/run_eval.py" /app/fishaudio-drama-3/run_eval.py) $(inject_cmd_gz "${REPO_ROOT}/scripts/run_eval_utils.py" /app/scripts/run_eval_utils.py) ${SCRIPTS_PYTHONPATH}"
 
 # Voice cloning (VOICE_CLONE=true): clone the per-sample reference + score SIM; else built-in voice.
 SUPPORTS_VOICE_CLONE=true

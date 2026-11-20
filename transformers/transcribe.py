@@ -6,7 +6,7 @@ mirrors `transcribe()` in `transformers/run_eval.py`.
 
 ZTTS2-Eval Mini panel manifests use `--asr_profile ztts2` instead: ZTTS2-Eval's ASR, i.e. Whisper-large-v3 or
 Qwen3-ASR routed per language as ZTTS2-Eval routes them, at pinned revisions, with its repetition-loop guard. Each
-row it transcribes is stamped with `asr_profile` / `asr_model`, which normalizer/ztts2.py requires.
+row it transcribes is stamped with `asr_profile` / `asr_model`.
 """
 
 import argparse
@@ -171,9 +171,11 @@ def main(args):
         preds = transcribe([_resolve(entries[i]["audio_filepath"]) for i in idxs])
         for i, pred in zip(idxs, preds):
             entries[i]["pred_text"] = pred
+            # The stamp marks the row as transcribed (an empty pred_text alone does not: stage 1
+            # writes ""), which scoring and the SIM stage check before using the manifest.
+            entries[i]["asr_model"] = f"{model_id}@{revision or 'main'}"
             if ztts2:
                 entries[i]["asr_profile"] = "ztts2"
-                entries[i]["asr_model"] = f"{model_id}@{revision}"
         rewrite_manifest()  # persist progress so a crash doesn't lose completed chunks
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

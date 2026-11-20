@@ -24,8 +24,8 @@ Files written (all in that dataset repo):
 
 Every file but model_info.csv also has a free-text `Note` column, filled by --note (e.g. hardware
 caveats); a results file gets the column the first time a note is published to it. The Neyshekar and
-ZTTS2-Eval Mini files are created on their first publish; ZTTS2-Eval Mini's WER is ZTTS2-Eval's
-weighted panel estimate (normalizer/ztts2.py).
+ZTTS2-Eval Mini files are created on their first publish; they are scored like every other dataset
+(the panel weights are not used).
 
 Usage:
     # dry run (default): show the rows that would be written
@@ -72,7 +72,7 @@ from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download  # noqa: 
 from huggingface_hub.errors import EntryNotFoundError  # noqa: E402
 
 from normalizer.eval_utils import SIM_BACKEND_SUFFIXES, UTMOS_COLUMN_LANGUAGES, KOMOS_LANGUAGES, default_multilingual, score_results  # noqa: E402
-from normalizer.ztts2 import PANEL_LANGS  # noqa: E402
+from prepare_ztts2_eval_mini import PANEL_LANGS  # noqa: E402
 
 # Where the results live, and where they are published.
 RESULTS_BUCKET = "hf-audio/tts_leaderboard_h200"
@@ -145,6 +145,9 @@ TARGETS = {
     "ztts2_mini_itw_voice_clone": Target("ztts2_mini_itw_voice_clone.csv", "ztts2_eval_mini_in_the_wild_",
                                          voice_clone=True, languages=PANEL_LANGS["in_the_wild"]),
 }
+# Wired in but not on the leaderboard yet (like ztts2_mini_itw in scripts/tts_jobs_common.sh): only
+# written when named in --targets.
+OPT_IN_TARGETS = ("ztts2_mini_itw", "ztts2_mini_itw_voice_clone")
 
 # streaming.csv is filled from the TTFA sidecars rather than by scoring, so it is not a Target.
 STREAMING_KEY = "streaming"
@@ -649,7 +652,8 @@ def main():
         nargs="+",
         default=None,
         choices=[*TARGETS, STREAMING_KEY],
-        help="Benchmark files to update (default: every one the model has results for).",
+        help="Benchmark files to update (default: every one the model has results for, except the opt-in "
+             f"{', '.join(OPT_IN_TARGETS)}, which must be named).",
     )
     parser.add_argument(
         "--skip_model_info",
@@ -759,7 +763,7 @@ def main():
         sys.exit(1)
 
     # ── Which manifests feed which file ──────────────────────────────────────
-    target_keys = args.targets or [*TARGETS, STREAMING_KEY]
+    target_keys = args.targets or [*[k for k in TARGETS if k not in OPT_IN_TARGETS], STREAMING_KEY]
     sidecars = {}
     if STREAMING_KEY in target_keys:
         sidecars = select_ttfa_sidecars(model_dir, model_safe, variant, args.engine)
