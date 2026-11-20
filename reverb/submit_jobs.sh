@@ -42,23 +42,9 @@ generate_stage() {
         "
 }
 
-# ── Datasets: "config split asr_language [dataset_path]", Reverb's languages only ──
-# Without a 4th field the line uses DEFAULT_DATASET_PATH (seed_tts_eval in DATASET_NAMESPACE).
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH}"
-    "zero_shot fr fr ${CV3_EVAL_PATH}"
-    "zero_shot es es ${CV3_EVAL_PATH}"
-    "zero_shot de de ${CV3_EVAL_PATH}"
-    "zero_shot it it ${CV3_EVAL_PATH}"
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts pl pl ${MINIMAX_EVAL_PATH}"
-    "tts pt pt ${MINIMAX_EVAL_PATH}"
-)
+# ── Languages Reverb speaks (model card) ──
+# run_eval.py passes the split language to Reverb and picks that language's preset voice.
+SUPPORTED_LANGUAGES="en de fr es it pl pt"
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
 MODEL_CONFIGS=(
