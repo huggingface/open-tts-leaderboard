@@ -14,7 +14,7 @@ SUPPORTS_VOICE_CLONE=true
 resolve_mode() { VOICE_CLONE=true voice_clone_mode; }
 
 # The base checkpoint covers English and Chinese only.
-supports_language() { [[ "$1" == en || "$1" == zh ]]; }
+SUPPORTED_LANGUAGES="en zh"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id batch_size". ──
 # Sampling settings (steps, CFG, temperature, ...) and BF16/compile/tail padding are run_eval.py's defaults.
@@ -39,18 +39,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-# Without a 4th field the line uses DEFAULT_DATASET_PATH (hf-audio/seed_tts_eval).
-DATASET_CONFIGS=(
-    "tts en en"
-    "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH}"
-    "zero_shot zh zh ${CV3_EVAL_PATH}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts zh zh ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
 MODEL_CONFIGS=(

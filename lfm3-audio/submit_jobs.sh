@@ -36,36 +36,8 @@ generate_stage() {
         "
 }
 
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-# The languages of each benchmark that the model speaks (model card: 18 languages; see LANGUAGES
-# in run_eval.py). Without a 4th field the line uses DEFAULT_DATASET_PATH (hf-audio/seed_tts_eval).
-DATASET_CONFIGS=(
-    "tts en en"
-    "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH}"
-    "zero_shot zh zh ${CV3_EVAL_PATH}"
-    "zero_shot fr fr ${CV3_EVAL_PATH}"
-    "zero_shot es es ${CV3_EVAL_PATH}"
-    "zero_shot ja ja ${CV3_EVAL_PATH}"
-    "zero_shot ko ko ${CV3_EVAL_PATH}"
-    "zero_shot de de ${CV3_EVAL_PATH}"
-    "zero_shot it it ${CV3_EVAL_PATH}"
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts zh zh ${MINIMAX_EVAL_PATH}"
-    "tts ja ja ${MINIMAX_EVAL_PATH}"
-    "tts ko ko ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts pt pt ${MINIMAX_EVAL_PATH}"
-    "tts nl nl ${MINIMAX_EVAL_PATH}"
-    "tts pl pl ${MINIMAX_EVAL_PATH}"
-    "tts el el ${MINIMAX_EVAL_PATH}"
-    "tts fi fi ${MINIMAX_EVAL_PATH}"
-    "tts tr tr ${MINIMAX_EVAL_PATH}"
-    "tts ar ar ${MINIMAX_EVAL_PATH}"
-)
+# The 18 languages of the model card (LANGUAGES in run_eval.py).
+SUPPORTED_LANGUAGES="en zh ja ko fr de es it pt nl pl el fi tr ar da he sv"
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
 MODEL_CONFIGS=(

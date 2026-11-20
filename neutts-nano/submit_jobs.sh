@@ -37,13 +37,8 @@ generate_stage() {
         "
 }
 
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment to pick) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
+# ── neuphonic/neutts-nano checkpoints are English-only (model metadata) ──
+SUPPORTED_LANGUAGES="en"
 
 # ── Models: "model_id batch_size" (batch_size optional; CLI args override) ────
 MODEL_CONFIGS=(

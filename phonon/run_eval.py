@@ -431,7 +431,7 @@ def main(args):
             raise ValueError("Use namespace/name model labels and Hub datasets.")
     if Path(args.dataset_path).exists():
         raise ValueError("Local datasets cannot satisfy an immutable Hub revision pin.")
-    if args.dataset not in ("tts", "zero_shot") or not re.fullmatch(r"[\w-]+", args.voice):
+    if args.dataset not in ("tts", "zero_shot", "clean", "in_the_wild") or not re.fullmatch(r"[\w-]+", args.voice):
         raise ValueError("Select a standard dataset configuration and an explicit preset name.")
 
     if not args.dataset_revision:

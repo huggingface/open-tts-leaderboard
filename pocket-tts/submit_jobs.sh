@@ -35,8 +35,7 @@ resolve_mode() {
 # ── Languages Pocket TTS has a checkpoint for ────────────────────────────────
 # One checkpoint per language and no multilingual fallback (run_eval.py hard-errors on anything
 # else), so unsupported combos are skipped here. Every language listed also has a 24l variant.
-POCKET_LANGUAGES="en de es it pt fr"
-supports_language() { [[ " ${POCKET_LANGUAGES} " == *" $1 "* ]]; }
+SUPPORTED_LANGUAGES="en de es it pt fr"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id batch_size". ──
 # NOTE: batch_size only sets the manifest-flush granularity — Pocket TTS has no batched API.
@@ -65,24 +64,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment to pick) ──
-# Seed-TTS zh and CV3-Eval ja/ko/ru/zh are omitted: Pocket TTS has no checkpoint for them.
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts pt pt ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
 # One Hub repo holds every language checkpoint; the language comes from the dataset combo and the

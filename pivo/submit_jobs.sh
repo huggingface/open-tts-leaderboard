@@ -29,7 +29,7 @@ resolve_mode() {
 }
 
 # English only (two English voices, CMU-dictionary frontend).
-supports_language() { [[ "$1" == "en" ]]; }
+SUPPORTED_LANGUAGES="en"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id voice" (no batched API — one sample at a time) ──
 # The image bakes the model at the revision pinned in run_eval.py (PIVO_MODEL_DIR=/opt/pivo).
@@ -54,13 +54,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id voice" (CLI args override) ─────────────────────────────
 # Pi is the package default and the leaderboard row; Vo is the second built-in voice.

@@ -13,7 +13,7 @@ RUN_EVAL_INJECT="$(inject_run_eval)"
 # the model's seven languages (built-in voices exist for English and Chinese; the other five use the
 # English voice cross-lingually, see run_eval.py).
 SUPPORTS_VOICE_CLONE=true
-supports_language() { [[ " en zh ja ko de fr es " == *" $1 "* ]]; }
+SUPPORTED_LANGUAGES="en zh ja ko de fr es"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id" (batch 1: the model's code assumes it). ──
 generate_stage() {
@@ -34,28 +34,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-# supports_language() skips the splits the selected mode can't do.
-# Without a 4th field the line uses DEFAULT_DATASET_PATH (hf-audio/seed_tts_eval).
-DATASET_CONFIGS=(
-    "tts en en"
-    "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH}"
-    "zero_shot zh zh ${CV3_EVAL_PATH}"
-    "zero_shot fr fr ${CV3_EVAL_PATH}"
-    "zero_shot es es ${CV3_EVAL_PATH}"
-    "zero_shot ja ja ${CV3_EVAL_PATH}"
-    "zero_shot ko ko ${CV3_EVAL_PATH}"
-    "zero_shot de de ${CV3_EVAL_PATH}"
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts zh zh ${MINIMAX_EVAL_PATH}"
-    "tts ja ja ${MINIMAX_EVAL_PATH}"
-    "tts ko ko ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=(

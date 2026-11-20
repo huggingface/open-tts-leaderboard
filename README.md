@@ -9,10 +9,11 @@ The following datasets are used in the Open TTS Leaderboard:
 2. [CV3 Eval](https://github.com/QwenAudio/CV3-Eval): `en`, `zh`, `fr` (French), `es` (Spanish), `ja` (Japanese), `ko` (Korean), `it` (Italian), `de` (German), and `ru` (Russian) (`zero_shot` config, 500 samples per language).
 3. [MiniMax Multilingual](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Set) (`tts` config): 100 samples x 24 languages. (Thai is scored with CER; Ukrainian is not supported by ASR)
 4. [Neyshekar](https://huggingface.co/datasets/shekar-ai/Neyshekar) (`tts` config): `fa` (Persian), from its predefined test split (2,098 samples), scored with CER. A `tts_validation` config, from its validation split, is reserved for development. See the [dataset card](https://huggingface.co/datasets/hf-audio/neyshekar_eval) for how prompts and targets are paired.
+5. [ZTTS2-Eval](https://github.com/Zyphra/ZTTS2-Eval) Mini ([Zyphra/ztts2_eval_mini](https://huggingface.co/datasets/Zyphra/ztts2_eval_mini), public): the benchmark's coreset panels, run and reported as two datasets: `clean` (`ztts2_mini_clean`: FLEURS-R, 35 languages, 3,500 items) and `in_the_wild` (`ztts2_mini_itw`: VoxBlink2, 20 languages, 1,919 items). In-The-Wild is wired in but opt-in, as it is not on the leaderboard yet. Transcribed with Whisper-large-v3 for languages it introduces: `fil` (Tagalog), `sv`, `da`, `hu`, `uk`, `nb`, `he`, `bg`, `hr`, `sk`, `ca` and `ms`, and with Qwen3-ASR for the rest.
 
 While human preference is the ultimate decider, **arenas cannot scale to keep up with the pace of TTS releases**. To this end, we use objective metrics to evaluate models on complementary aspects of performance:
 
-1. **Intelligibility**: word/character error rate (WER and CER) between the target text and the generated audio's transcript, using [Qwen3 ASR](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf) (top ranking open-source model on the [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard)).
+1. **Intelligibility**: word/character error rate (WER and CER) between the target text and the generated audio's transcript, using [Qwen3 ASR](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf) (top ranking open-source model on the [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard)) (ZTTS2-Eval Mini: routed per language, see above).
 2. **Speed**: inverse real-time factor (RTFx) for batched offline inference on an H200 GPU, and time-to-first-audio (TTFA) for quantifying streaming batch size 1 latency on an A100 GPU and CPU.
 3. **Speaker similarity** by computing the cosine similarity (SIM) between [WavLM speaker embeddings](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval) of the generated audio and the reference clip. Note that not all models support voice cloning, so those models are omitted from this evaluation.
 4. **Naturalness**: predicted MOS (1-5) with [UTMOS22 strong](https://github.com/tarepan/SpeechMOS) (UTMOS). UTMOS22 is trained on English only, so it is reported for `en` only. An optional [KOMOS](https://github.com/upskyy/komos) pilot reports Korean predicted MOS for `ko`.
@@ -80,6 +81,8 @@ The [MiniMax](https://huggingface.co/datasets/MiniMaxAI/TTS-Multilingual-Test-Se
 
 Likewise, [Neyshekar](https://huggingface.co/datasets/shekar-ai/Neyshekar) (Persian) is CC0 1.0, so it is redistributed publicly as [hf-audio/neyshekar_eval](https://huggingface.co/datasets/hf-audio/neyshekar_eval) and jobs use it by default (`NEYSHEKAR_EVAL_PATH`).
 
+[ZTTS2-Eval](https://github.com/Zyphra/ZTTS2-Eval) Mini is public as [Zyphra/ztts2_eval_mini](https://huggingface.co/datasets/Zyphra/ztts2_eval_mini) and jobs use it by default (`ZTTS2_EVAL_MINI_PATH`). It is built with `python scripts/prepare_ztts2_eval_mini.py --ztts2-root <ZTTS2-Eval checkout>` (the prompt audio comes from ZTTS2-Eval's `scripts/prep/download_data.py`). Its In-The-Wild part is CC-BY-NC-SA-4.0 (non-commercial).
+
 
 #### 4. Smoke test
 
@@ -144,12 +147,12 @@ flowchart LR
 ```
 
 1. **Generate** (`generate`): the backend's `run_eval.py` synthesizes every sample of the split and writes the wavs plus a JSONL manifest to `RESULTS_BUCKET`, in a folder per model.
-2. **Transcribe** (`transcribe`): [transformers/transcribe.py](transformers/transcribe.py) transcribes the wavs with [Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf), using the split's language as a hint.
+2. **Transcribe** (`transcribe`): [transformers/transcribe.py](transformers/transcribe.py) transcribes the wavs with [Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf), using the split's language as a hint. ZTTS2-Eval Mini splits use `--asr_profile ztts2` instead (Whisper-large-v3 or Qwen3-ASR per language, as ZTTS2-Eval).
 3. **Speaker similarity** (`sim`, voice cloning only): [transformers/score_similarity.py](transformers/score_similarity.py) compares each generated clip with its reference prompt, using the [Seed TTS Eval](https://github.com/BytedanceSpeech/seed-tts-eval#metrics) speaker-verification model (WavLM-large + ECAPA-TDNN, mirrored [here](https://huggingface.co/bezzam/wavlm_large_finetune_seed_tts_eval)).
 4. **UTMOS** (`utmos`, `UTMOS_LANGS` only): [transformers/score_utmos.py](transformers/score_utmos.py) predicts a MOS for each wav with UTMOS22 strong.
 5. **KOMOS** (`komos`, optional, Korean only): [transformers/score_komos.py](transformers/score_komos.py) scores Korean audio with `komos==0.0.2` and a pinned checkpoint in an isolated environment.
 6. **Score** (on your machine): the model's manifests are synced to `./results/<model>` and scored per language:
-   - **WER** after text normalization (CER for `zh`, `ja`, `ko`, `th`, `fa`)
+   - **WER** after text normalization (CER for `zh`, `ja`, `ko`, `th`, `fa`; in Korean a Latin word is one CER token, as in ZTTS2-Eval; Arabic vowel marks and letter variants such as أ/إ/ا or ة/ه are folded, as in ZTTS2-Eval), pooled over the split (total errors / total reference words) with each utterance's errors capped at its reference length, so one runaway or hallucinated clip counts as at most 100% WER
    - **RTFx**: total audio duration divided by total generation time, measured in stage 1
    - **SIM**: mean speaker similarity, for voice cloning only
    - **UTMOS**: mean predicted MOS
@@ -176,17 +179,22 @@ Useful environment variables (see [scripts/tts_jobs_common.sh](scripts/tts_jobs_
 | `DATASET_NAMESPACE` | `hf-audio` | Namespace holding your private `seed_tts_eval` / `cv3_eval` copies |
 | `RESULTS_BUCKET` | `hf-audio/tts_leaderboard_h200` | Bucket the jobs write to |
 | `MAX_EVAL_SAMPLES` | `-1` (all) | Cap samples per split, e.g. `8` for a smoke test |
-| `ONLY_LANGS` | (all) | Only run the configured splits for these languages, e.g. `"en zh"` |
-| `ONLY_DATASETS` | (all) | Only run the configured splits of these dataset repos (name after the namespace), e.g. `"minimax_eval"` |
+| `ONLY_DATASETS` | (all but the opt-in `ztts2_mini_itw`) | Only run these of the backend's datasets (naming `ztts2_mini_itw` includes it), by [registry](#datasets-and-languages) name (`seed_tts cv3 minimax neyshekar ztts2_mini_clean ztts2_mini_itw`) or repo name (`ztts2_eval_mini` = both ZTTS2 panels), e.g. `"minimax"` |
+| `ONLY_LANGS` | (all) | Only run the splits in these languages, e.g. `"en zh"` |
+| `DRY_RUN` | `false` | Print the (model, split) combos a run would submit, without submitting anything |
 | `STAGES` | `generate transcribe sim utmos` | Subset of stages, e.g. `"transcribe sim"` to re-score existing wavs. Add the optional `komos` stage to score Korean (`ko`) outputs |
 | `VOICE_CLONE` | `false` | Clone the prompt speaker (backends that support both modes) |
 | `ASR_OVERWRITE` / `SIM_OVERWRITE` | `false` | Recompute `pred_text` / `sim` instead of resuming. SIM is always recomputed when `generate` runs; set `SIM_OVERWRITE=true` only to re-score existing audio with `STAGES="sim"` |
 | `ORG_NAME` | (none) | Run the jobs under an organization's namespace |
+| `ZTTS2_EVAL_MINI_PATH` | `Zyphra/ztts2_eval_mini` | ZTTS2-Eval Mini dataset repo (public) |
 
 Examples:
 ```bash
 # all configured models + splits of a backend
 bash kokoro/submit_jobs.sh
+
+# only MiniMax German and French; DRY_RUN=true lists the splits without submitting
+ONLY_DATASETS=minimax ONLY_LANGS="de fr" DRY_RUN=true bash voxcpm2/submit_jobs.sh
 
 # a specific model (overrides the backend's MODEL_CONFIGS; format is backend-specific)
 VOICE_CLONE=true bash transformers/submit_jobs.sh "vibevoice/VibeVoice-1.5B-hf 32 512"
@@ -196,6 +204,26 @@ python scripts/score_model.py --model_id hexgrad/Kokoro-82M --language en
 ```
 
 Job logs are written to `<backend>/job_logs/`. Live status is at https://huggingface.co/settings/jobs.
+
+#### Datasets and languages
+
+The datasets and their splits are defined once, in the registry in [scripts/tts_jobs_common.sh](scripts/tts_jobs_common.sh) (`dataset_repo` / `dataset_splits`). A backend only lists the languages its model speaks:
+```bash
+SUPPORTED_LANGUAGES="en zh fr de es"           # default (empty): every language
+```
+`run_pipeline` runs every split of every dataset whose language is in `SUPPORTED_LANGUAGES`, and skips the rest. A backend that must leave a whole dataset out can set `DATASETS` (default: every dataset in the registry), e.g. `DATASETS="seed_tts cv3 minimax"`. A backend whose rule depends on the model or the mode (e.g. one checkpoint per language, or languages only in voice-cloning mode) overrides `supports_language()` instead, calling `language_supported` for the `SUPPORTED_LANGUAGES` check: see [zonos3-mini/submit_jobs.sh](zonos3-mini/submit_jobs.sh) or [transformers/submit_jobs.sh](transformers/submit_jobs.sh).
+
+To add a dataset, add it to `DATASET_NAMES`, `dataset_repo` and `dataset_splits` in the registry; to add a language to an existing dataset, add the split to `dataset_splits`. Either way every backend that supports the language picks it up, with no change to the backends (check with `DRY_RUN=true`).
+
+#### Pinned model revisions
+
+Every job downloads the models at the commit pinned in [model_revisions.json](model_revisions.json). To maintain the list:
+```bash
+python scripts/pin_revisions.py                    # pin new models (MODEL_CONFIGS, scorers) at their current main
+python scripts/pin_revisions.py --add org/name     # e.g. a repo logged as UNPINNED
+python scripts/pin_revisions.py --check            # pinned repos whose main moved, with the new commits
+python scripts/pin_revisions.py --bump org/name    # re-pin after reviewing those commits
+```
 
 #### Publishing results
 
@@ -249,10 +277,12 @@ Seamless is fast and batched, so most of each of its generation jobs (~1 min per
 3. **Write `<backend>/submit_jobs.sh`**, which sources [scripts/tts_jobs_common.sh](scripts/tts_jobs_common.sh) and then:
    - sets `TTS_SPACE` (your Docker Space), or its own registry image if it doesn't use a Space, and `RUN_EVAL_INJECT="$(inject_run_eval)"`
    - defines `generate_stage()`, the `hf jobs run` command for stage 1
-   - sets `SUPPORTS_VOICE_CLONE=true` if the model can clone, and optionally defines `supports_language()` to skip splits the model can't synthesize
-   - sets `DATASET_CONFIGS` and `MODEL_CONFIGS`, then calls `run_pipeline`
-4. **Smoke test** with `MAX_EVAL_SAMPLES=8 ONLY_LANGS="en" bash <backend>/submit_jobs.sh`, then run the full evaluation.
-5. **Open a PR** on this repository with the new backend folder, using the [pull request template](.github/pull_request_template.md). Include the scores printed at the end of the run. A maintainer will then publish the results to the leaderboard with `scripts/open_results_pr.py`.
+   - sets `SUPPORTS_VOICE_CLONE=true` if the model can clone
+   - sets `SUPPORTED_LANGUAGES`, the model card's languages (see [Datasets and languages](#datasets-and-languages))
+   - sets `MODEL_CONFIGS`, then calls `run_pipeline`
+4. **Pin the model**: `python scripts/pin_revisions.py` adds the new model ids to [model_revisions.json](model_revisions.json) (see [Pinned model revisions](#pinned-model-revisions)).
+5. **Smoke test**: check the splits with `DRY_RUN=true bash <backend>/submit_jobs.sh`, run `MAX_EVAL_SAMPLES=8 ONLY_LANGS="en" bash <backend>/submit_jobs.sh`, then run the full evaluation.
+6. **Open a PR** on this repository with the new backend folder, using the [pull request template](.github/pull_request_template.md). Include the scores printed at the end of the run. A maintainer will then publish the results to the leaderboard with `scripts/open_results_pr.py`.
 
 
 ## Time-to-first audio (streaming) evaluation
@@ -351,5 +381,12 @@ If you use the Open TTS Leaderboard, please cite it along with the benchmarks it
   author  = {Du, Zhihao and others},
   journal = {arXiv preprint arXiv:2505.17589},
   year    = {2025}
+}
+
+@misc{ztts2eval,
+  title={{ZTTS2-Eval}: A Multilingual, In-the-Wild Zero-Shot TTS Benchmark},
+  author={Zyphra},
+  year={2026},
+  howpublished={\url{https://github.com/Zyphra/ZTTS2-Eval}},
 }
 ```

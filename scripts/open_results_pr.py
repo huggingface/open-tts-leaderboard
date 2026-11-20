@@ -16,12 +16,16 @@ Files written (all in that dataset repo):
     minimax_voice_clone.csv   MiniMax multilingual, cloning each prompt  (WER, RTFx, SIM, UTMOS + averages)
     neyshekar.csv             Neyshekar Persian test, own/default voice (WER, RTFx)
     neyshekar_voice_clone.csv Neyshekar Persian test, cloning each prompt (WER, RTFx, SIM)
+    ztts2_mini_clean.csv      ZTTS2-Eval Mini Clean, own/default voice (WER, RTFx + averages)
+    ztts2_mini_clean_voice_clone.csv  ... cloning each prompt (WER, RTFx, SIM + averages)
+    ztts2_mini_itw.csv        ZTTS2-Eval Mini In-The-Wild, own/default voice (WER, RTFx + averages)
+    ztts2_mini_itw_voice_clone.csv    ... cloning each prompt (WER, RTFx, SIM + averages)
     streaming.csv             time-to-first-audio, CPU and GPU           (TTFA, RTFx at batch 1)
 
 Every file but model_info.csv also has a free-text `Note` column, filled by --note (e.g. hardware
-caveats); a results file gets the column the first time a note is published to it.
-
-Nothing is pushed unless --open_pr is passed: the default is a dry run that prints the rows.
+caveats); a results file gets the column the first time a note is published to it. The Neyshekar and
+ZTTS2-Eval Mini files are created on their first publish; they are scored like every other dataset
+(the panel weights are not used).
 
 Usage:
     # dry run (default): show the rows that would be written
@@ -68,6 +72,7 @@ from huggingface_hub import CommitOperationAdd, HfApi, hf_hub_download  # noqa: 
 from huggingface_hub.errors import EntryNotFoundError  # noqa: E402
 
 from normalizer.eval_utils import SIM_BACKEND_SUFFIXES, UTMOS_COLUMN_LANGUAGES, KOMOS_LANGUAGES, default_multilingual, score_results  # noqa: E402
+from prepare_ztts2_eval_mini import PANEL_LANGS  # noqa: E402
 
 # Where the results live, and where they are published.
 RESULTS_BUCKET = "hf-audio/tts_leaderboard_h200"
@@ -104,8 +109,11 @@ class Target:
     voice_clone: which side of the `_voice_clone` split this file publishes.
     xvector_sim: this file also carries the xvector-scale SIM column, which needs a second scoring
         pass (one `score_results` call reports one SIM scale).
-    languages: optional allowed language set, also preventing a development config whose
-        name shares the marker prefix from being published as final test results.
+    languages: for a benchmark with a fixed language set, its language columns, in order. Only those
+        languages are published, which also keeps a development config whose name shares the marker
+        prefix out; the file is created on its first publish (see `new_results_file`); and the
+        benchmark is optional -- scripts/rescore_all.py neither requires a model to be on it nor the
+        file to exist.
     """
 
     def __init__(self, filename, marker, voice_clone, xvector_sim=False, languages=None):
@@ -126,9 +134,20 @@ TARGETS = {
     "cv3_voice_clone": Target("cv3_voice_clone.csv", "cv3_eval_zero_shot_", voice_clone=True),
     "minimax": Target("minimax.csv", "minimax_eval_tts_", voice_clone=False),
     "minimax_voice_clone": Target("minimax_voice_clone.csv", "minimax_eval_tts_", voice_clone=True),
-    "neyshekar": Target("neyshekar.csv", "neyshekar_eval_tts_", voice_clone=False, languages={"fa"}),
-    "neyshekar_voice_clone": Target("neyshekar_voice_clone.csv", "neyshekar_eval_tts_", voice_clone=True, languages={"fa"}),
+    "neyshekar": Target("neyshekar.csv", "neyshekar_eval_tts_", voice_clone=False, languages=("fa",)),
+    "neyshekar_voice_clone": Target("neyshekar_voice_clone.csv", "neyshekar_eval_tts_", voice_clone=True, languages=("fa",)),
+    "ztts2_mini_clean": Target("ztts2_mini_clean.csv", "ztts2_eval_mini_clean_", voice_clone=False,
+                               languages=PANEL_LANGS["clean"]),
+    "ztts2_mini_clean_voice_clone": Target("ztts2_mini_clean_voice_clone.csv", "ztts2_eval_mini_clean_",
+                                           voice_clone=True, languages=PANEL_LANGS["clean"]),
+    "ztts2_mini_itw": Target("ztts2_mini_itw.csv", "ztts2_eval_mini_in_the_wild_", voice_clone=False,
+                             languages=PANEL_LANGS["in_the_wild"]),
+    "ztts2_mini_itw_voice_clone": Target("ztts2_mini_itw_voice_clone.csv", "ztts2_eval_mini_in_the_wild_",
+                                         voice_clone=True, languages=PANEL_LANGS["in_the_wild"]),
 }
+# Wired in but not on the leaderboard yet (like ztts2_mini_itw in scripts/tts_jobs_common.sh): only
+# written when named in --targets.
+OPT_IN_TARGETS = ("ztts2_mini_itw", "ztts2_mini_itw_voice_clone")
 
 # streaming.csv is filled from the TTFA sidecars rather than by scoring, so it is not a Target.
 STREAMING_KEY = "streaming"
@@ -421,19 +440,19 @@ def line_terminator(line):
 
 def fetch_csv(filename, hf_token, revision=None):
     """`filename` as published on `revision` (default: main; e.g. "refs/pr/126" for an open PR)."""
-    try:
-        path = hf_hub_download(RESULTS_REPO, filename, repo_type="dataset", token=hf_token, revision=revision)
-    except EntryNotFoundError:
-        # Bootstrap only the new benchmark's files. Missing existing files and permission
-        # errors must still fail. The separate tts_validation config cannot match these targets.
-        if filename not in {"neyshekar.csv", "neyshekar_voice_clone.csv"}:
-            raise
-        header = ["model", "fa WER", "fa RTFx"]
-        if filename == "neyshekar_voice_clone.csv":
-            header.append("fa SIM")
-        return Published(serialize_row(header) + "\n")
+    path = hf_hub_download(RESULTS_REPO, filename, repo_type="dataset", token=hf_token, revision=revision)
     with open(path, newline="", encoding="utf-8") as handle:
         return Published(handle.read())
+
+
+def new_results_file(target):
+    """The header-only file of a fixed-language benchmark that is not published yet: per-language columns
+    in `target.languages` order, then averages when there is more than one language."""
+    metrics = ("WER", "RTFx", "SIM") if target.voice_clone else ("WER", "RTFx")
+    header = ["model"] + [f"{lang} {metric}" for lang in target.languages for metric in metrics]
+    if len(target.languages) > 1:
+        header += [f"avg {metric}" for metric in metrics]
+    return Published(serialize_row(header) + "\n")
 
 
 def serialize_row(row):
@@ -633,7 +652,8 @@ def main():
         nargs="+",
         default=None,
         choices=[*TARGETS, STREAMING_KEY],
-        help="Benchmark files to update (default: every one the model has results for).",
+        help="Benchmark files to update (default: every one the model has results for, except the opt-in "
+             f"{', '.join(OPT_IN_TARGETS)}, which must be named).",
     )
     parser.add_argument(
         "--skip_model_info",
@@ -743,7 +763,7 @@ def main():
         sys.exit(1)
 
     # ── Which manifests feed which file ──────────────────────────────────────
-    target_keys = args.targets or [*TARGETS, STREAMING_KEY]
+    target_keys = args.targets or [*[k for k in TARGETS if k not in OPT_IN_TARGETS], STREAMING_KEY]
     sidecars = {}
     if STREAMING_KEY in target_keys:
         sidecars = select_ttfa_sidecars(model_dir, model_safe, variant, args.engine)
@@ -805,7 +825,14 @@ def main():
     updated = {}  # filename -> new content
     for key in [k for k in TARGETS if k in selection]:
         target = TARGETS[key]
-        published = fetch_csv(target.filename, args.hf_token, base_revision)
+        try:
+            published = fetch_csv(target.filename, args.hf_token, base_revision)
+        except EntryNotFoundError:
+            # Only a fixed-language benchmark's file is created here; any other missing file is an error.
+            if target.languages is None:
+                raise
+            print(f"\n{target.filename} is not in {RESULTS_REPO} yet; creating it.")
+            published = new_results_file(target)
         header = published.header
         languages = header_languages(header)
         values, unknown = collect_values(

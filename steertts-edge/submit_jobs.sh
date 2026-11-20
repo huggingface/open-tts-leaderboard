@@ -12,7 +12,7 @@ DEFAULT_STAGES="generate transcribe utmos"
 SUPPORTS_VOICE_CLONE=false
 STEERTTS_REVISION="${STEERTTS_REVISION:-v2.1.0}"     # pinned release of the model repo
 RUN_EVAL_INJECT="$(inject_run_eval)"
-supports_language() { [[ "$1" == "en" ]]; }
+SUPPORTED_LANGUAGES="en"
 
 # ── Stage 1: TTS generation (one sample at a time — no batched API) ──────────
 generate_stage() {
@@ -34,14 +34,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" ─────────────────────
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH}"
-    # MiniMax multilingual (100 sentences/language): English only for SteerTTS.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=("WhissleAI/steer-tts-edge")
