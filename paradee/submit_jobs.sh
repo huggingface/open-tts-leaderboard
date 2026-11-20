@@ -17,7 +17,7 @@ PARADEE_DEVICE="${PARADEE_DEVICE:-cuda:0}"
 PARADEE_THREADS="${PARADEE_THREADS:-1}"
 
 # English only (one voice, misaki American English G2P).
-supports_language() { [[ "$1" == "en" ]]; }
+SUPPORTED_LANGUAGES="en"
 
 # ── Stage 1: TTS generation (no batched API — one sample at a time) ──
 generate_stage() {
@@ -38,14 +38,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=("sahilmahendrakar/Paradee-8M-v1.0")

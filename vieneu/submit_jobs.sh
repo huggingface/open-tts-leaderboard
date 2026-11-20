@@ -11,7 +11,7 @@ DEFAULT_STAGES="generate transcribe"           # no SIM (default voice); no UTMO
 RUN_EVAL_INJECT="$(inject_run_eval)"
 
 # Vietnamese only for now (the model is Vietnamese/English).
-supports_language() { [[ "$1" == "vi" ]]; }
+SUPPORTED_LANGUAGES="vi"
 
 # ── Stage 1: TTS generation (batched on GPU) ─────────────────────────────────
 generate_stage() {
@@ -42,12 +42,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" ─────────────────────
-# MiniMax multilingual: 100 sentences per language, public at hf-audio/minimax_eval.
-DATASET_CONFIGS=(
-    "tts vi vi ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
 MODEL_CONFIGS=(

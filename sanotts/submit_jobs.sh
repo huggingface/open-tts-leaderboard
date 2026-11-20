@@ -35,7 +35,7 @@ resolve_mode() {
 }
 
 # English only: the three evaluated voices are English, with the package's English front end.
-supports_language() { [[ "$1" == "en" ]]; }
+SUPPORTED_LANGUAGES="en"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id voice" (no batched API — one sample at a time) ──
 # NumPy on the host CPU of the h200 flavor; --device=cpu (run_eval.py refuses a GPU device).
@@ -61,13 +61,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id voice" (CLI args override) ─────────────────────────────
 # heart is the default row; amy and heart-nano are the two other English voices (variants).

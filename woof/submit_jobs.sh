@@ -28,7 +28,7 @@ resolve_mode() {
 }
 
 # English only (two English voices, English text normalizer).
-supports_language() { [[ "$1" == "en" ]]; }
+SUPPORTED_LANGUAGES="en"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id voice" (no batched API — one sample at a time) ──
 generate_stage() {
@@ -52,13 +52,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "tts en en ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id voice" (CLI args override) ─────────────────────────────
 # Juno is the package default (and the faster voice); Mira is the model card's best-WER voice.

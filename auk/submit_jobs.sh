@@ -26,8 +26,7 @@ resolve_mode() {
 }
 
 # ── Languages AuK is documented for ─────────────────────────────────────────
-AUK_LANGUAGES="${AUK_LANGUAGES:-en zh}"
-supports_language() { [[ " ${AUK_LANGUAGES} " == *" $1 "* ]]; }
+SUPPORTED_LANGUAGES="${AUK_LANGUAGES:-en zh}"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id [batch_size] [duration_scale]". ──
 MAX_ATTN_COST="${MAX_ATTN_COST:-0}"
@@ -61,18 +60,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment) ──
-# Seed-TTS zero-shot TTS splits: en (1088), zh (2020), zh_hard (400).
-DATASET_CONFIGS=(
-    "tts en en"
-    "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot zh zh ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports. No `uk`: Qwen3-ASR has no Ukrainian.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts zh zh ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id [batch_size] [duration_scale]" (CLI args override) ─────
 MODEL_CONFIGS=(

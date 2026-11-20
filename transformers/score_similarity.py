@@ -24,6 +24,7 @@ Resumable: a row is re-scored unless it already has a numeric `sim` from the req
 import argparse
 import json
 import os
+import time
 
 import torch
 import torch.nn as nn
@@ -445,10 +446,26 @@ def main(args):
     torch_dtype = getattr(torch, args.dtype)
 
     # ── Read manifest ────────────────────────────────────────────────────────
-    with open(args.manifest_path, encoding="utf-8") as f:
-        entries = [json.loads(line) for line in f if line.strip()]
-    if not entries:
-        raise ValueError(f"No entries found in manifest {args.manifest_path}")
+    # The fork copies `pred_text` from the source manifest, so with --wait_for_transcripts the source
+    # must be transcribed first: a bucket-mounted manifest can lag behind the transcribe job's writes,
+    # and a fork built from the stale copy would score as 100% WER. Re-read until the rows are
+    # transcribed (see below), else fail rather than fork it.
+    deadline = time.monotonic() + args.wait_for_transcripts
+    while True:
+        with open(args.manifest_path, encoding="utf-8") as f:
+            entries = [json.loads(line) for line in f if line.strip()]
+        if not entries:
+            raise ValueError(f"No entries found in manifest {args.manifest_path}")
+        # Same rule as normalizer.eval_utils.untranscribed_fraction: stage 1 writes `"pred_text": ""`,
+        # transcribe.py stamps each row it fills with `asr_model`; allow up to 20% empty, unstamped rows.
+        missing = sum(1 for e in entries if not (e.get("pred_text") or "").strip() and "asr_model" not in e)
+        if not args.wait_for_transcripts or missing <= 0.2 * len(entries):
+            break
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"{missing}/{len(entries)} rows of {args.manifest_path} still have no transcript after "
+                               f"{args.wait_for_transcripts:.0f}s; run the transcribe stage first")
+        print(f"  {missing}/{len(entries)} rows have no pred_text yet (transcripts not visible); re-reading in 30s")
+        time.sleep(30)
     print(f"Scoring speaker similarity for {len(entries)} samples from {args.manifest_path}")
 
     out_path = args.output_manifest_path or sim_manifest_path(args.manifest_path, args.sim_backend)
@@ -652,6 +669,13 @@ if __name__ == "__main__":
         help="Truncate each clip to at most this many seconds before embedding (0 = no cap). "
              "Bounds GPU memory: WavLM OOMs on very long/runaway clips, and a speaker embedding "
              "needs only a few seconds of audio.",
+    )
+    parser.add_argument(
+        "--wait_for_transcripts",
+        type=float,
+        default=0,
+        help="Seconds to wait for every source row to have a pred_text before forking the manifest (0 = don't "
+             "check). The pipeline sets it when the transcribe stage ran just before.",
     )
     parser.add_argument("--device", type=str, default="cuda", help="'cuda', 'cpu', or 'cuda:0'.")
     parser.add_argument("--dtype", type=str, default="float32", help="Model dtype, e.g. 'float32'.")

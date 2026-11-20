@@ -33,36 +33,8 @@ generate_stage() {
         "
 }
 
-# ── Datasets: "config split asr_language [dataset_path]" (comment/uncomment to pick) ────────
-DATASET_CONFIGS=(
-    "tts en en"
-    "tts zh zh"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot zh zh ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ja ja ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ko ko ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot ru ru ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts zh zh ${MINIMAX_EVAL_PATH}"
-    "tts ja ja ${MINIMAX_EVAL_PATH}"
-    "tts ko ko ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts pt pt ${MINIMAX_EVAL_PATH}"
-    "tts ru ru ${MINIMAX_EVAL_PATH}"
-    "tts pl pl ${MINIMAX_EVAL_PATH}"
-    "tts cs cs ${MINIMAX_EVAL_PATH}"
-    "tts el el ${MINIMAX_EVAL_PATH}"
-    "tts tr tr ${MINIMAX_EVAL_PATH}"
-    "tts ar ar ${MINIMAX_EVAL_PATH}"
-    "tts fa fa ${NEYSHEKAR_EVAL_PATH}"
-)
+# ── Languages MOSS-TTS covers (model card: 20) ──
+SUPPORTED_LANGUAGES="zh en de es fr ja it he ko ru fa ar pl pt cs da sv hu el tr"
 
 # ── Models: "model_id batch_size" (CLI args override) ────────────────────────
 MODEL_CONFIGS=(

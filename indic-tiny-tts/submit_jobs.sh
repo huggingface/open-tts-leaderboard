@@ -33,7 +33,7 @@ VOICE="${VOICE:-male}"
 echo "indic-tiny-tts: revision=${MODEL_REVISION} voice=${VOICE} results bucket=${RESULTS_BUCKET}"
 
 # Single-language (Hindi) model: skip every other split instead of burning a GPU job on garbage audio.
-supports_language() { [[ "$1" == "hi" ]]; }
+SUPPORTED_LANGUAGES="hi"
 
 # ── Stage 1: TTS generation (the model synthesizes one sample at a time: no batch size) ──
 generate_stage() {
@@ -56,11 +56,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]". Hindi exists only in MiniMax (100 sentences). ──
-DATASET_CONFIGS=(
-    "tts hi hi ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=("sulabhkatiyar/indic-tiny-tts-hindi")

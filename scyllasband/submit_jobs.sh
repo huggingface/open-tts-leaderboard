@@ -14,8 +14,7 @@ RUN_EVAL_INJECT="$(inject_run_eval)"
 
 # ── Languages ────────────────────────────────────────────────────────────────
 # Six languages, every voice speaks all of them; `en` is the voice's own English dialect.
-SCYLLASBAND_LANGUAGES="en es it fr de vi"
-supports_language() { [[ " ${SCYLLASBAND_LANGUAGES} " == *" $1 "* ]]; }
+SUPPORTED_LANGUAGES="en es it fr de vi"
 # One fixed built-in voice for every split (tuesday: British English).
 SCYLLASBAND_VOICE="${SCYLLASBAND_VOICE:-tuesday}"
 
@@ -38,23 +37,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]" ────────────────────
-DATASET_CONFIGS=(
-    "tts en en"
-    "zero_shot en en ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot es es ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot fr fr ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot de de ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    "zero_shot it it ${CV3_EVAL_PATH:-hf-audio/cv3_eval}"
-    # MiniMax multilingual (100 sentences/language): the languages the model supports.
-    "tts en en ${MINIMAX_EVAL_PATH}"
-    "tts es es ${MINIMAX_EVAL_PATH}"
-    "tts fr fr ${MINIMAX_EVAL_PATH}"
-    "tts de de ${MINIMAX_EVAL_PATH}"
-    "tts it it ${MINIMAX_EVAL_PATH}"
-    "tts vi vi ${MINIMAX_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=("spybyscript/scyllasband")
