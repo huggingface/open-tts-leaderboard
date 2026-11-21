@@ -164,6 +164,8 @@ TTFA_TARGETS=(
     "paradee|paradee|bezzam/evals-paradee|sahilmahendrakar/Paradee-8M-v1.0|"
     # No Space: public PyTorch image + pip install from paradee-v1.3/job_image.sh. English voice as in its eval.
     "paradee-v1.3|paradee-v1.3||sahilmahendrakar/Paradee-8M-v1.3|--voice=af_heart"
+    # No Space: public PyTorch image + pip install from reverb/job_image.sh. The English preset voice, as in its eval.
+    "reverb|reverb||software-mansion/Reverb-TTS|--language=${TTFA_LANG}"
     "pocket-tts|pocket-tts|bezzam/evals-pocket|kyutai/pocket-tts|--language=${TTFA_LANG}"
     "qwen3tts|qwen3tts|bezzam/evals-qwentts|Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice|--speaker=Aiden --mode=custom_voice --language=${TTFA_LANG}"
     # The same checkpoint under andimarafioti/faster-qwen3-tts (CUDA graphs, incremental audio).
