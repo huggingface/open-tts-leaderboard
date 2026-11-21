@@ -38,18 +38,18 @@ HF_PREFIX = "hf://{repo}/"  # how the repo's config.yaml names its own files
 
 
 def load_model(args):
-    """Download the repo at the pinned revision, read its Persian front-end from there and build the model."""
+    """Download the repo, read its Persian front-end from there and build the model. The download runs under
+    the job's HF_PIN layer (scripts/hf_pin), which redirects this `main` request to the commit pinned in
+    model_revisions.json, so the eval always hears the reviewed release."""
     local_dir = snapshot_download(
-        args.model_id, revision=args.revision,
+        args.model_id,
         allow_patterns=["config.yaml", "model.safetensors", "tokenizer.model", "normalize_fa.py", "speak_fa.py",
                         f"prompts/{args.voice}.wav"],
     )
-    print(f"Model snapshot: {local_dir} (requested revision: {args.revision or 'default branch'})")
-    if args.revision and len(args.revision) == 40 and os.path.basename(local_dir) != args.revision:
-        raise RuntimeError(f"snapshot {os.path.basename(local_dir)} does not match requested revision {args.revision}")
+    print(f"Model snapshot: {local_dir}")
 
     # The shipped config points at hf://<repo>/..., which always resolves the default branch: point it at the
-    # pinned snapshot instead.
+    # downloaded snapshot instead.
     config = open(os.path.join(local_dir, "config.yaml"), encoding="utf-8").read()
     prefix = HF_PREFIX.format(repo=args.model_id)
     if prefix not in config:
@@ -136,8 +136,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_id", type=str, default="mehdi-hf/cilla-mini",
                         help="Hub repo of the model (also used for manifest naming): mehdi-hf/cilla-mini or mehdi-hf/cilla-lite.")
-    parser.add_argument("--revision", type=str, default="",
-                        help="Commit sha of the model repo (submit_jobs.sh pins one). Empty = default branch.")
+    # The commit is pinned centrally in model_revisions.json via the job's HF_PIN layer (no --revision here).
     # --batch_size is the manifest-flush granularity ONLY: generation is one sample at a time.
     add_common_args(parser, batch_size=32, voice_clone=False)
     parser.add_argument("--voice", type=str, default="voice1", choices=["voice1", "voice2", "parisa"],

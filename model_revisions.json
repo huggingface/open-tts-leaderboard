@@ -29,6 +29,8 @@
   "LiquidAI/LFM2.5-Audio-1.5B": "95d7e5a0ca706151aa7b7989275a902007a04cbe",
   "LiquidAI/LFM3-Audio-2B": "2d6c1f99c129b3ef07a8d168bc0ff08e2bdb93f1",
   "maya-research/maya2-native": "87a83efdd6551e038246b6b37836a6264713eec3",
+  "mehdi-hf/cilla-lite": "e12e50f108dff1443012e0b540f095821d1e5245",
+  "mehdi-hf/cilla-mini": "8720ebea8b22dc9e36392f0df632514df40c263d",
   "microsoft/speecht5_hifigan": "bb6f429406e86a9992357a972c0698b22043307d",
   "microsoft/speecht5_tts": "30fcde30f19b87502b8435427b5f5068e401d5f6",
   "microsoft/VibeVoice-Realtime-0.5B": "6bce5f06044837fe6d2c5d7a71a84f0416bd57e4",

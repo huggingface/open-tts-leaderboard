@@ -22,28 +22,19 @@ GEN_TIMEOUT="${GEN_TIMEOUT:-8h}"
 DEFAULT_STAGES="generate transcribe"             # fixed voice, Persian: no SIM (no cloning), no UTMOS (English only)
 RUN_EVAL_INJECT="$(inject_run_eval)"
 
-# Pinned commits of the model repos (the released versions). Override with MODEL_REVISION=<40-char sha> for a new release.
-revision_for() {
-    case "$1" in
-        mehdi-hf/cilla-mini) echo "8720ebea8b22dc9e36392f0df632514df40c263d" ;;
-        mehdi-hf/cilla-lite) echo "e12e50f108dff1443012e0b540f095821d1e5245" ;;
-        *) echo "" ;;
-    esac
-}
+# The model repos are pinned in model_revisions.json (scripts/pin_revisions.py); the HF_PIN layer in every
+# job redirects a `main` download to the pinned commit, so run_eval.py downloads at main and no --revision
+# is passed. Review a new release before --bump.
 # Built-in voice: voice1 (a woman), voice2 (a man) or parisa. One voice per run, one leaderboard row.
 VOICE="${VOICE:-voice1}"
 
-# Persian-only models: skip every other split instead of burning a job on garbage audio.
-supports_language() { [[ "$1" == "fa" ]]; }
+# Persian-only models: run_pipeline keeps only the fa split of every registry dataset (Neyshekar and
+# ZTTS2-Eval Mini clean both have one), skipping other languages instead of burning a job on garbage audio.
+SUPPORTED_LANGUAGES="fa"
 
 # ── Stage 1: TTS generation (one sample at a time: no batch size) ──
 generate_stage() {
-    local revision="${MODEL_REVISION:-$(revision_for "${MODEL_ID}")}"
-    if [[ ! "${revision}" =~ ^[0-9a-f]{40}$ ]]; then
-        echo "cilla: no pinned revision for ${MODEL_ID}: set MODEL_REVISION to the full 40-char commit sha." >&2
-        return 1
-    fi
-    echo "cilla: ${MODEL_ID} revision=${revision} voice=${VOICE} results bucket=${RESULTS_BUCKET}"
+    echo "cilla: ${MODEL_ID} voice=${VOICE} results bucket=${RESULTS_BUCKET}"
     hf jobs run \
         --flavor "${FLAVOR}" --timeout "${GEN_TIMEOUT}" --secrets HF_TOKEN ${NAMESPACE_ARG} \
         --volume "hf://buckets/${RESULTS_BUCKET}:/results" "${GEN_IMAGE}" \
@@ -52,7 +43,6 @@ generate_stage() {
             pip install --no-cache-dir -q ${GEN_PIP_DEPS} &&
             cd /app/cilla && python run_eval.py \
                 --model_id=${MODEL_ID} \
-                --revision=${revision} \
                 --voice=${VOICE} \
                 --dataset_path=${DATASET_PATH} \
                 --dataset=${DATASET} \
@@ -63,11 +53,6 @@ generate_stage() {
             cp -r results/${MODEL_SAFE} /results/
         "
 }
-
-# ── Datasets: "config split asr_language [dataset_path]". Persian exists only in Neyshekar (2,098 test rows, CER). ──
-DATASET_CONFIGS=(
-    "tts fa fa ${NEYSHEKAR_EVAL_PATH}"
-)
 
 # ── Models: "model_id" (CLI args override) ───────────────────────────────────
 MODEL_CONFIGS=("mehdi-hf/cilla-mini" "mehdi-hf/cilla-lite")
