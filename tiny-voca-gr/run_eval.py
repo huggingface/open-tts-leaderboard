@@ -73,12 +73,12 @@ def main(args):
     from tiny_voca import infer                                   # noqa: E402
     infer.sentences = sentences
 
-    # ``check_frontend=False``: the adapter's fingerprint bundles the full eSpeak version string and
-    # its data path, so a different (but functionally equivalent) eSpeak install fails the check even
-    # when it reports the same version — the model card documents exactly this. The Greek phoneme
-    # inventory is unchanged, so bypassing the check (as the base tiny-voca backend also does for the
-    # dizione mismatch) gives correct audio; per-sample WER drift versus the card's panel is small.
-    model = infer.load_model(checkpoint, device="cpu", check_frontend=False)
+    # The adapter's fingerprint bundles the full eSpeak version banner (training used eSpeak NG 1.51
+    # at /usr/lib/x86_64-linux-gnu/espeak-ng-data). job_image.sh pins the Debian 12 (bookworm) base,
+    # which provides exactly that eSpeak 1.51 + data path, so the check passes natively — no bypass.
+    # (The Greek eSpeak G2P is byte-identical between 1.51 and 1.52, verified across all eval
+    # sentences, so this is a provenance/reproducibility fix and leaves the audio unchanged.)
+    model = infer.load_model(checkpoint, device="cpu")
     sample_rate = int(model.config.sample_rate)
     print(f"Loaded tiny-voca-gr voice={args.voice} | PyTorch + eSpeak NG, {sample_rate} Hz, "
           f"threads={args.threads}.")

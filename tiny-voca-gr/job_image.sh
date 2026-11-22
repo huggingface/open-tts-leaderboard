@@ -7,10 +7,15 @@
 # front end is eSpeak NG's Greek phonemiser, so the job apt-installs espeak-ng. The checkpoint
 # (inference.pt) is downloaded by run_eval.py at the pinned revision.
 #
-# The adapter checks the eSpeak version stored in the checkpoint (training used eSpeak NG 1.51 with
-# data at /usr/lib/x86_64-linux-gnu/espeak-ng-data); python:3.12-slim is Debian, so apt gives that
-# layout. Torch is pinned <2.7 (the adapter's requirement) from PyTorch's /whl/cpu index.
-GEN_IMAGE="${GEN_IMAGE:-python:3.12-slim}"
+# The adapter checks the full eSpeak version banner stored in the checkpoint: training used
+#   "eSpeak NG text-to-speech: 1.51  Data at: /usr/lib/x86_64-linux-gnu/espeak-ng-data".
+# The rolling python:3.12-slim tag now tracks Debian 13 (trixie), which ships eSpeak NG 1.52 and so
+# fails that banner check. We therefore pin Debian 12 (bookworm), which ships eSpeak NG 1.51 at the
+# exact training data path, so the fingerprint passes natively (run_eval.py loads with the check ON).
+# This is a banner/reproducibility fix, not an audio fix: the Greek eSpeak G2P is byte-identical
+# between 1.51 and 1.52 (verified on all eval sentences), so the numbers are unchanged. Torch is
+# pinned <2.7 (the adapter's requirement) from PyTorch's /whl/cpu index.
+GEN_IMAGE="${GEN_IMAGE:-python:3.12-slim-bookworm}"
 
 # The Greek adapter is installed straight from the model repo; pin it to the same revision run_eval.py
 # downloads the checkpoint at. Its pyproject pulls the upstream tiny-voca package (pinned there).
