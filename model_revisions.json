@@ -1,10 +1,13 @@
 {
   "_comment": "Hub commit each model repo is pinned to in the eval jobs (scripts/hf_pin/sitecustomize.py). Maintained with scripts/pin_revisions.py; review a repo's new commits before --bump.",
   "ampixa/sanoTTS": "25410576d005d7f08d186990fd91f6a2651243de",
+  "apptor/apptor-tiny-tts": "0b6962273a1d6618f250cdbd621b56ba04b62cef",
   "bezzam/wavlm_large_finetune_seed_tts_eval": "f127f699a44abb1c6e05f03522bd1b8c48be3184",
   "bosonai/higgs-tts-3-4b": "239f63fb7b02b1aa085f98d9efae5e35cc5523e8",
   "BreezeBlue/Breeze-TTS-2": "3e28c5151381a722f1d8661b4118c298caa77aa4",
+  "brenorb/tiny-broca": "0ea879d8f532ad0c6e7308017b45105a74f81a95",
   "charactr/vocos-mel-24khz": "0feb3fdd929bcd6649e0e7c5a688cf7dd012ef21",
+  "ComputationalLinguisticsPlatform/tiny-voca-gr": "927ea15cf4edcb8695b75328c9c90c5c53928554",
   "contextboxai/Kokoro-Vietnamese": "9f210d622209fcc216fe2ac6159fed2ff381cb8a",
   "ConwayResearch/Underdog-Woof": "be702960539777fc3f698e54335276a8391b00f9",
   "Edge0/Audio8-TTS-Realistic-0.6b": "6bf7a980759d8022a66922ee975dab99229a2dd9",
@@ -12,6 +15,7 @@
   "facebook/seamless-m4t-v2-large": "5f8cc790b19fc3f67a61c105133b20b34e3dcb76",
   "fishaudio/drama-3": "78e5ab79e49aa9a25abe8799eff2c4d73a1c3216",
   "fishaudio/s2-pro": "1de9996b6be38b745688de084d87a5633f714e4e",
+  "FranciscoCarlosErra/alpa-es": "de2bf894bdd9eb768ae03fc6b385176a0ff505d1",
   "FunAudioLLM/Fun-CosyVoice3-0.5B-2512": "29e01c4e8d000f4bcd70751be16fa94bf3d85a18",
   "gradium/phonon-31m-en": "8f7a37c94a4c58b04c8287300c53f11d2e208eae",
   "gradium/phonon-40m-de": "79cfc7b47fcfc0b666657b981eb366415023a862",
@@ -57,6 +61,7 @@
   "Qwen/Qwen3-TTS-12Hz-1.7B-Base": "fd4b254389122332181a7c3db7f27e918eec64e3",
   "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice": "0c0e3051f131929182e2c023b9537f8b1c68adfe",
   "ResembleAI/chatterbox": "5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18",
+  "RL10x/tiny-voca-hindi": "b76940f5edbc9c4ca2c7c8cf29f20897ff3339fe",
   "sahilmahendrakar/Paradee-8M-v1.0": "c7f83f86c04e84d0ae94cbe1aad7618e0544f80a",
   "sahilmahendrakar/Paradee-8M-v1.3": "b569f5efb789af5ba643a44af348427242ceb784",
   "Serveurperso/Qwen3-TTS-GGUF": "b7ee2e8c7459c3bea99da23e3d178125a7d1713c",
@@ -70,6 +75,7 @@
   "vibevoice/VibeVoice-1.5B-hf": "d4cd82eb4371bf3e3d088e1ea7fa4eefb60449bf",
   "WhissleAI/steer-tts": "65ec6a637f4bd9d868064846c69ed85e37d302a0",
   "WhissleAI/steer-tts-edge": "acac05e2c2b1cc18b327532e535782b9e823f213",
+  "wite-tech/clarvia-tts-tiny": "51023684a0a39742455c838e9d1d8714d3ae7289",
   "ydqmkkx/GibbsTTS": "a31945f20bf84498af41508ff3b126ea7f53b5c2",
   "Zyphra/ZONOS3-Mini": "2921b8821772b0bd10a04456863d21abf9d2f283"
 }
