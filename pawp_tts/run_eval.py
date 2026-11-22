@@ -9,8 +9,9 @@ including the waveform decoder). Two fixed-voice English folded ONNX checkpoints
   * Firoj112/pawp-tts-300k   281,078 unique / 328,158 materialized params (1.12 MB FP32,
                              1.32 MB folded EN ONNX, n_fft=512)
 
-Inference runs on CPU via ONNX Runtime (`CPUExecutionProvider`) with the repo's deterministic
-English eSpeak-NG frontend and `OnnxStreamingRunner` (60 ms first chunk for `--ttfa_probe`).
+Inference runs on CPU via ONNX Runtime (`CPUExecutionProvider`) with zero PyTorch dependency,
+using the repo's pure-Python deterministic English eSpeak-NG frontend and an inlined NumPy
+iSTFT + bounded-halo streaming runner (60 ms first chunk for `--ttfa_probe`).
 Stage 2 (`transformers/transcribe.py`) transcribes with Qwen3-ASR, UTMOS22 scores naturalness,
 and stage 4 computes WER + RTFx (no stage 3 SIM: fixed single-speaker voice).
 """
@@ -20,9 +21,11 @@ from __future__ import annotations
 import argparse
 import os
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import numpy as np
+import onnxruntime as ort
 import soundfile as sf
 import yaml
 from huggingface_hub import hf_hub_download
@@ -49,9 +52,155 @@ PINNED_REVISIONS: dict[str, str] = {
 }
 
 
+def _hann_istft_numpy(
+    real_spec: np.ndarray,
+    imag_spec: np.ndarray,
+    n_fft: int,
+    hop_length: int,
+    window: np.ndarray,
+) -> np.ndarray:
+    """Fast NumPy inverse STFT matching `torch.istft(..., center=True)`."""
+    n_frames = real_spec.shape[1]
+    if n_frames <= 0:
+        return np.zeros(0, dtype=np.float32)
+
+    complex_spec = real_spec.astype(np.float32) + 1j * imag_spec.astype(np.float32)
+    frames = np.fft.irfft(complex_spec, n=n_fft, axis=0).astype(np.float32)
+    frames *= window[:, None]
+
+    raw_len = (n_frames - 1) * hop_length + n_fft
+    audio = np.zeros(raw_len, dtype=np.float32)
+    win_env = np.zeros(raw_len, dtype=np.float32)
+    win_sq = window * window
+
+    for t in range(n_frames):
+        offset = t * hop_length
+        audio[offset : offset + n_fft] += frames[:, t]
+        win_env[offset : offset + n_fft] += win_sq
+
+    nonzero = win_env > 1e-8
+    audio[nonzero] /= win_env[nonzero]
+    pad = n_fft // 2
+    if raw_len <= 2 * pad:
+        return np.zeros(0, dtype=np.float32)
+    return audio[pad : raw_len - pad].astype(np.float32)
+
+
+def _expand_frames_numpy(
+    enc_h: np.ndarray,
+    durations: np.ndarray,
+    prog_weight: np.ndarray,
+    prog_bias: np.ndarray,
+) -> np.ndarray:
+    int_durs = np.maximum(np.round(durations[0]).astype(np.int64), 1)
+    expanded = np.repeat(enc_h[0], int_durs, axis=0)
+    prog_chunks = []
+    for d in int_durs:
+        steps = np.arange(d, dtype=np.float32)
+        denom = float(max(d, 1))
+        prog_chunks.append(np.stack([steps / denom, (d - 1 - steps) / denom], axis=-1))
+    prog = np.concatenate(prog_chunks, axis=0)
+    return (expanded + (prog @ prog_weight.T + prog_bias))[None, :, :].astype(np.float32)
+
+
+class _PureOnnxStreamingRunner:
+    """Zero-PyTorch CPU ONNX Runtime chunked streaming synthesizer."""
+
+    def __init__(
+        self,
+        enc_path: Path,
+        dec_path: Path,
+        prog_path: Path,
+        n_fft: int,
+        hop_length: int,
+        intra_op_threads: int = 4,
+    ) -> None:
+        opts = ort.SessionOptions()
+        opts.intra_op_num_threads = intra_op_threads
+        opts.inter_op_num_threads = 1
+        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+        self._enc_sess = ort.InferenceSession(
+            str(enc_path), sess_options=opts, providers=["CPUExecutionProvider"]
+        )
+        self._dec_sess = ort.InferenceSession(
+            str(dec_path), sess_options=opts, providers=["CPUExecutionProvider"]
+        )
+        prog_data = np.load(prog_path)
+        self._prog_w = prog_data["weight"].astype(np.float32)
+        self._prog_b = prog_data["bias"].astype(np.float32)
+        self._n_fft = n_fft
+        self._hop_length = hop_length
+        self._hann = np.hanning(self._n_fft + 1)[:-1].astype(np.float32)
+
+    def stream_pcm(
+        self,
+        phoneme_ids: np.ndarray,
+        lang_ids: np.ndarray,
+        stress_ids: np.ndarray,
+        boundary_flags: np.ndarray,
+        first_chunk_frames: int = 6,
+        chunk_frames: int = 16,
+        left_halo: int = 24,
+        right_halo: int = 11,
+    ) -> Iterator[np.ndarray]:
+        enc_h, pred_dur = self._enc_sess.run(
+            None,
+            {
+                "phoneme_ids": phoneme_ids.astype(np.int64),
+                "lang_ids": lang_ids.astype(np.int64),
+                "stress_ids": stress_ids.astype(np.int64),
+                "boundary_flags": boundary_flags.astype(np.float32),
+            },
+        )
+        frame_h = _expand_frames_numpy(enc_h, pred_dur, self._prog_w, self._prog_b)
+        total_frames = frame_h.shape[1]
+
+        cursor = 0
+        step = 0
+        while cursor < total_frames:
+            cur_size = first_chunk_frames if step == 0 else chunk_frames
+            end = min(cursor + cur_size, total_frames)
+            w_start = max(0, cursor - left_halo)
+            w_end = min(total_frames, end + right_halo)
+
+            _, real_s, imag_s = self._dec_sess.run(
+                None, {"frame_h": frame_h[:, w_start:w_end, :].astype(np.float32)}
+            )
+            real_win, imag_win = real_s[0], imag_s[0]
+
+            spec_pad_l = min(2, cursor - w_start)
+            spec_pad_r = min(2, w_end - end)
+            rel_l = cursor - w_start
+            rel_r = end - w_start
+
+            audio_win = _hann_istft_numpy(
+                real_win[:, rel_l - spec_pad_l : rel_r + spec_pad_r],
+                imag_win[:, rel_l - spec_pad_l : rel_r + spec_pad_r],
+                n_fft=self._n_fft,
+                hop_length=self._hop_length,
+                window=self._hann,
+            )
+
+            trim_l = spec_pad_l * self._hop_length
+            target_samples = (
+                (end - cursor) * self._hop_length
+                if end < total_frames
+                else max((end - cursor - 1) * self._hop_length, 0)
+            )
+            if len(audio_win) >= trim_l + target_samples and target_samples > 0:
+                yield audio_win[trim_l : trim_l + target_samples]
+            elif len(audio_win) > trim_l:
+                yield audio_win[trim_l:]
+            cursor = end
+            step += 1
+
+
 def _load_pawp_runner(model_id: str, revision: str | None, threads: int):
-    from pawp_tts.infrastructure.inference.streaming import ExportedOnnxPaths, OnnxStreamingRunner
-    from pawp_tts.interfaces.container import build_container
+    # Pure-Python frontend imports only (zero torch / dotenv / safetensors dependencies)
+    from pawp_tts.application.frontend_service import PhonemizeUtteranceUseCase
+    from pawp_tts.infrastructure.frontend.english_adapter import EnglishEspeakG2PAdapter
+    from pawp_tts.infrastructure.frontend.nepali_adapter import NepaliRuleG2PAdapter
 
     rev = revision or PINNED_REVISIONS.get(model_id)
     enc_p = Path(hf_hub_download(model_id, "onnx/pawp_en_encoder_dur.onnx", revision=rev))
@@ -64,16 +213,15 @@ def _load_pawp_runner(model_id: str, revision: str | None, threads: int):
     hop_length = int(cfg.get("hop_length", 240))
     n_fft = int(cfg.get("n_fft", 1024))
 
-    paths = ExportedOnnxPaths(
-        encoder_dur_path=enc_p,
-        frame_decoder_path=dec_p,
-        progress_weights_path=prog_p,
-        sample_rate=sample_rate,
-        hop_length=hop_length,
+    runner = _PureOnnxStreamingRunner(
+        enc_path=enc_p,
+        dec_path=dec_p,
+        prog_path=prog_p,
         n_fft=n_fft,
+        hop_length=hop_length,
+        intra_op_threads=threads,
     )
-    runner = OnnxStreamingRunner(paths, intra_op_threads=threads)
-    phonemize = build_container().phonemize
+    phonemize = PhonemizeUtteranceUseCase(EnglishEspeakG2PAdapter(), NepaliRuleG2PAdapter())
     return runner, phonemize, sample_rate, rev
 
 
