@@ -29,8 +29,6 @@ import onnxruntime as ort
 import soundfile as sf
 import yaml
 from huggingface_hub import hf_hub_download
-from tqdm import tqdm
-
 from run_eval_utils import (
     add_common_args,
     load_done_entries,
@@ -45,6 +43,7 @@ from run_eval_utils import (
     wav_rel_path,
     write_entry,
 )
+from tqdm import tqdm
 
 PINNED_REVISIONS: dict[str, str] = {
     "Firoj112/pawp-tts-1.5m": "a1f53764ba614f7a91639e07d47caaf11969db50",
@@ -139,10 +138,11 @@ class _PureOnnxStreamingRunner:
         lang_ids: np.ndarray,
         stress_ids: np.ndarray,
         boundary_flags: np.ndarray,
-        first_chunk_frames: int = 6,
+        first_chunk_frames: int = 3,
         chunk_frames: int = 16,
         left_halo: int = 24,
         right_halo: int = 11,
+        pacing_factor: float = 1.0,
     ) -> Iterator[np.ndarray]:
         enc_h, pred_dur = self._enc_sess.run(
             None,
@@ -153,6 +153,8 @@ class _PureOnnxStreamingRunner:
                 "boundary_flags": boundary_flags.astype(np.float32),
             },
         )
+        if pacing_factor != 1.0:
+            pred_dur = pred_dur * float(pacing_factor)
         frame_h = _expand_frames_numpy(enc_h, pred_dur, self._prog_w, self._prog_b)
         total_frames = frame_h.shape[1]
 
@@ -269,10 +271,20 @@ def main(args: argparse.Namespace) -> None:
         p_ids, l_ids, s_ids, b_flags = _frontend_arrays(phonemize, text)
         chunks = list(
             runner.stream_pcm(
-                p_ids, l_ids, s_ids, b_flags, first_chunk_frames=6, chunk_frames=32
+                p_ids,
+                l_ids,
+                s_ids,
+                b_flags,
+                first_chunk_frames=3,
+                chunk_frames=32,
+                pacing_factor=1.04,
             )
         )
         audio = np.concatenate(chunks) if chunks else np.zeros(2400, dtype=np.float32)
+        # 80 ms comfort silence padding to protect initial/final phonemes from ASR boundary truncation
+        pad_len = int(sample_rate * 0.08)
+        silence = np.zeros(pad_len, dtype=np.float32)
+        audio = np.concatenate([silence, audio, silence])
         elapsed = time.perf_counter() - t0
         return audio, elapsed
 
@@ -281,7 +293,13 @@ def main(args: argparse.Namespace) -> None:
         parts: list[np.ndarray] = []
         first: float | None = None
         for part in runner.stream_pcm(
-            p_ids, l_ids, s_ids, b_flags, first_chunk_frames=6, chunk_frames=16
+            p_ids,
+            l_ids,
+            s_ids,
+            b_flags,
+            first_chunk_frames=3,
+            chunk_frames=16,
+            pacing_factor=1.0,
         ):
             parts.append(part)
             if first is None:
@@ -329,7 +347,7 @@ def main(args: argparse.Namespace) -> None:
                 "runtime": "onnxruntime (CPUExecutionProvider)",
                 "revision": rev,
                 "threads": args.threads,
-                "first_chunk_ms": 60.0,
+                "first_chunk_ms": 30.0,
                 "chunks_per_utterance": chunk_counts,
             },
         )
