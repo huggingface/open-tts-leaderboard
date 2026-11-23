@@ -5,10 +5,15 @@
 # installing only espeak-ng (for English G2P) and lightweight Python deps (no PyTorch wheel needed).
 GEN_IMAGE="${GEN_IMAGE:-python:3.12-slim}"
 PAWP_REPO="${PAWP_REPO:-https://github.com/Firojpaudel/PAWP_TTS.git}"
+# Pin the frontend package commit: HF_PIN only covers HF downloads, not git+ installs, and the
+# phonemizer/token-id mapping lives in this package, so an unpinned HEAD would silently change the
+# tokens fed to the ONNX graphs. Pinned to PAWP_TTS main @ 2026-11-22 ("Fix _frontend_arrays tensor
+# encoding in open_tts_leaderboard backend"), the commit this run_eval.py was validated against.
+PAWP_COMMIT="${PAWP_COMMIT:-f0602ad62a499b9c97e851b958d594bf150abdaf}"
 GEN_PIP_DEPS="${GEN_PIP_DEPS:-onnxruntime==1.21.1 numpy==2.2.4 pyyaml==6.0.2 datasets==3.6.0 \
 soundfile==0.13.1 tqdm==4.67.1 huggingface_hub==0.30.2}"
 
 # gen_setup <device> -> `... &&` install snippet for the job body. CPU only.
 gen_setup() {
-    echo "apt-get update -qq && apt-get install -y -qq --no-install-recommends espeak-ng git libsndfile1 >/dev/null && pip install --no-cache-dir -q ${GEN_PIP_DEPS} && pip install --no-cache-dir -q --no-deps git+${PAWP_REPO} &&"
+    echo "apt-get update -qq && apt-get install -y -qq --no-install-recommends espeak-ng git libsndfile1 >/dev/null && pip install --no-cache-dir -q ${GEN_PIP_DEPS} && pip install --no-cache-dir -q --no-deps git+${PAWP_REPO}@${PAWP_COMMIT} &&"
 }

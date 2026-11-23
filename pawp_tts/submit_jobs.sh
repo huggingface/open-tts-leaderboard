@@ -5,7 +5,7 @@
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common.sh"
 
 source "${BACKEND_DIR}/job_image.sh"
-PAWP_THREADS="${PAWP_THREADS:-4}"
+PAWP_THREADS="${PAWP_THREADS:-1}"               # 1 CPU thread on the h200 host, like every other CPU backend, so RTFx is independent of host core count
 GEN_TIMEOUT="${GEN_TIMEOUT:-2h}"
 DEFAULT_STAGES="generate transcribe utmos"
 RUN_EVAL_INJECT="$(inject_run_eval)"

@@ -383,8 +383,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--threads",
         type=int,
-        default=4,
-        help="ONNX Runtime intra-op CPU threads (default 4).",
+        default=1,
+        help="ONNX Runtime intra-op CPU threads (default 1, so RTFx is independent of host cores).",
     )
     add_common_args(parser)
     parser.set_defaults(device="cpu")
