@@ -29,12 +29,13 @@ resolve_mode() {
         heart) MODE_SUFFIX="" ;;
         amy) MODE_SUFFIX="_amy" ;;
         heart-nano) MODE_SUFFIX="_heartnano" ;;
-        *) echo "sanotts: unknown voice '${VOICE}' (heart, amy, heart-nano)" >&2; exit 1 ;;
+        heart-nano-s) MODE_SUFFIX="_heartnanos" ;;
+        *) echo "sanotts: unknown voice '${VOICE}' (heart, amy, heart-nano, heart-nano-s)" >&2; exit 1 ;;
     esac
     true
 }
 
-# English only: the three evaluated voices are English, with the package's English front end.
+# English only: the four evaluated voices are English, with the package's English front end.
 SUPPORTED_LANGUAGES="en"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id voice" (no batched API — one sample at a time) ──

@@ -3,7 +3,7 @@ TTS synthesis for the Open TTS Leaderboard (sanoTTS backend, stage 1).
 
 sanoTTS (https://huggingface.co/ampixa/sanoTTS, code https://github.com/Ampixa/sanoTTS) is a family of
 small distilled TTS voices that run with NumPy only (no torch, no ONNX Runtime) through the `sanotts`
-pip package. Three English voices are evaluated, one leaderboard row each:
+pip package. Four English voices are evaluated, one leaderboard row each:
 
   * heart       2,272,145 params, 24 kHz. "nano" graph (mel-100 -> ConvNeXt1D -> iSTFT), fp32,
                 distilled from Kokoro-82M af_heart. The default row (no suffix).
@@ -12,21 +12,27 @@ pip package. Three English voices are evaluated, one leaderboard row each:
   * heart-nano    294,279 params, 24 kHz. A separate, much smaller student of the same nano
                 architecture (lineage en_us_e13b vs heart's en_us_r227f32), stored in int8.
                 Suffix `_heartnano`.
+  * heart-nano-s  263,103 params, 24 kHz, int8. A streaming-native student (sanotts >= 0.5.5): its
+                duration and acoustic models see only nearby phonemes (no position or utterance-length
+                inputs, NANO_LOCAL_FEATURES 1) and it keeps heart-nano's decoder (with a weight-space
+                edit). Same Kokoro af_heart teacher. Suffix `_heartnanos`.
 
-Weights are read from the model repo pinned to the commit main pointed to on 2026-11-07 (the package's
+Weights are read from the model repo pinned to the commit main pointed to on 2026-11-25, which added
+heartnanos/ and left the heart, amy-en-1p46m and heartnano folders byte-identical to the 2026-11-07 pin
+used before (the package's
 own default fetch reads the moving `main`; the package checks every blob against the sha256 in the
 voice's metadata).
 The G2P is the package's default, espeak-free English front end for each voice (a lexicon plus an
 out-of-vocabulary fallback model), so no GPL espeak-ng is involved.
 
 Text handling. Every text is first synthesized WHOLE, exactly as `Synthesizer.synthesize` takes it.
-The nano voices (heart, heart-nano) refuse inputs longer than their duration model's 207-token window
+heart and heart-nano refuse inputs longer than their duration model's 207-token window
 (`FrontendError(kind="too_long")`), and the package has no long-text loop of its own, so ONLY on that
 error this backend (not the package) falls back: it splits the text into sentences (the regex of the
 project's streaming integration, custom_components/sanotts/tts.py; fragments with no word character
 stay attached to the preceding sentence), and any sentence still too long is cut at clause
 punctuation (, ; :) in its middle third, else at the space nearest its middle, recursively. Pieces are
-concatenated with no added silence. amy has no window and is never split. The fallback runs inside the
+concatenated with no added silence. amy and heart-nano-s have no window and are never split. The fallback runs inside the
 timed call (RTFx and TTFA include the failed whole-text attempt), and each manifest row that needed it
 records `frontend = {"sentences": k, "pieces": n}` (n > k means mid-sentence cuts).
 
@@ -41,9 +47,12 @@ Streaming (TTFA probe only). `Synthesizer.synthesize_stream` (sanotts >= 0.5.1) 
 steps over the whole text (G2P, durations, the acoustic token stage, the decoder noise draw), then the
 local stages chunk by chunk (for heart / heart-nano the acoustic frame stage and the decoder, for amy the
 decoder) on windows widened by their receptive field, so the chunks concatenate to `synthesize()`'s audio
-(to float32 rounding; the package tests this). The first chunk is 8 frames, about 64 ms of audio from
-heart / heart-nano and 93 ms from amy; the pre-chunk work and the failed whole-text attempt of a too-long
-text are inside the timed call. The eval loop below keeps calling `synthesize()`, so the scored audio is
+(to float32 rounding; the package tests this). Since sanotts 0.5.5 the first chunk is 4 frames for the
+nano voices (about 21 ms of audio once the iSTFT centre padding is trimmed) and 8 frames (93 ms) for amy.
+heart-nano-s does not wait for the whole text: it converts the first words (the package checks that the
+whole-text conversion starts with the same ids and raises otherwise), decodes the frames whose receptive
+field lies inside them, then converts the rest; its synthesize() is that stream concatenated. The
+pre-chunk work and the failed whole-text attempt of a too-long text are inside the timed call. The eval loop below keeps calling `synthesize()`, so the scored audio is
 the non-streamed rendering.
 
 Stage 2 (`transformers/transcribe.py`) fills `pred_text` with Qwen3-ASR, and stage 4
@@ -66,14 +75,15 @@ from run_eval_utils import (
     pending_batches, print_next_steps, set_seed, warm_up, wav_rel_path, write_entry,
 )
 
-# Pinned model repo revision (ampixa/sanoTTS main on 2026-11-07). Every voice below is read from it.
-MODEL_REVISION = "4a8194aa1dd958033ee449b3ad30c37e536b216e"
+# Pinned model repo revision (ampixa/sanoTTS main on 2026-11-25). Every voice below is read from it.
+MODEL_REVISION = "ffa15db4f2ba5290f32e963de2e282ea0a12c454"
 
 # voice -> (folder in the model repo, learned parameters, manifest suffix). heart is the default row.
 VOICES = {
     "heart": ("heart", 2_272_145, ""),
     "amy": ("amy-en-1p46m", 1_454_284, "_amy"),
     "heart-nano": ("heartnano", 294_279, "_heartnano"),
+    "heart-nano-s": ("heartnanos", 263_103, "_heartnanos"),
 }
 DEFAULT_VOICE = "heart"
 
@@ -287,7 +297,7 @@ def main(args):
         return np.concatenate(parts), first, len(parts)
 
     # Layout: results/<model_safe>/{MODEL_<safe>_DATASET_<dsid><suffix>.jsonl, <dsid><suffix>/output_<id>.wav}.
-    # heart (the default) has no suffix; amy and heart-nano are variants (`open_results_pr.py --variant`).
+    # heart (the default) has no suffix; amy, heart-nano and heart-nano-s are variants (`open_results_pr.py --variant`).
     paths = output_paths(args, voice.suffix)
     model_dir, dataset_dir_name, manifest_path = paths.model_dir, paths.dataset_dir_name, paths.manifest_path
 
@@ -364,7 +374,7 @@ if __name__ == "__main__":
     parser.add_argument("--revision", type=str, default=MODEL_REVISION,
                         help="Model repo revision (default: the pinned commit above).")
     parser.add_argument("--voice", type=str, default=DEFAULT_VOICE, choices=sorted(VOICES),
-                        help="heart (default row), amy (suffix _amy) or heart-nano (suffix _heartnano).")
+                        help="heart (default row), amy (suffix _amy), heart-nano (suffix _heartnano) or heart-nano-s (suffix _heartnanos).")
     parser.add_argument("--threads", type=int, default=1,
                         help="NumPy BLAS threads (threadpoolctl). Default 1, also used by the TTFA target.")
     add_common_args(parser)
