@@ -20,7 +20,7 @@ RUN_EVAL_INJECT="$(inject_run_eval)"
 
 # ── Voice → output suffix ────────────────────────────────────────────────────
 # All voices live in one model repo, so a non-default voice is a variant: MODE_SUFFIX must match the
-# suffix run_eval.py writes (publish with `open_results_pr.py --variant amy` / `--variant heartnano`).
+# suffix run_eval.py writes (publish with `open_results_pr.py --variant amy` / `--variant heartnanos`).
 resolve_mode() {
     local _ VOICE
     read -r _ VOICE <<< "${MODEL_CFG}"
@@ -28,9 +28,8 @@ resolve_mode() {
     case "${VOICE:-heart}" in
         heart) MODE_SUFFIX="" ;;
         amy) MODE_SUFFIX="_amy" ;;
-        heart-nano) MODE_SUFFIX="_heartnano" ;;
         heart-nano-s) MODE_SUFFIX="_heartnanos" ;;
-        *) echo "sanotts: unknown voice '${VOICE}' (heart, amy, heart-nano, heart-nano-s)" >&2; exit 1 ;;
+        *) echo "sanotts: unknown voice '${VOICE}' (heart, amy, heart-nano-s)" >&2; exit 1 ;;
     esac
     true
 }
@@ -64,8 +63,8 @@ generate_stage() {
 }
 
 # ── Models: "model_id voice" (CLI args override) ─────────────────────────────
-# heart is the default row; amy and heart-nano are the two other English voices (variants).
-MODEL_CONFIGS=("ampixa/sanoTTS heart" "ampixa/sanoTTS amy" "ampixa/sanoTTS heart-nano")
+# heart is the default row; amy and heart-nano-s are the two other English voices (variants).
+MODEL_CONFIGS=("ampixa/sanoTTS heart" "ampixa/sanoTTS amy" "ampixa/sanoTTS heart-nano-s")
 [[ $# -gt 0 ]] && MODEL_CONFIGS=("$@")
 
 run_pipeline
