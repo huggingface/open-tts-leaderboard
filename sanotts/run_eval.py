@@ -10,8 +10,8 @@ pip package. Three English voices are evaluated, one leaderboard row each:
   * amy         1,454,284 params, 22.05 kHz. "piperlite" graph (duration + token-context acoustic +
                 time-domain decoder), fp16 weights, distilled from Piper en_US-amy. Suffix `_amy`.
   * heart-nano  263,103 params, 24 kHz, int8. A much smaller, streaming-native student of the same
-                nano architecture and Kokoro af_heart teacher (sanotts >= 0.5.5; the package also
-                calls it heart-nano-s): its duration and acoustic models see only nearby phonemes (no
+                nano architecture and Kokoro af_heart teacher (runtime in sanotts >= 0.5.5; the
+                package's name heart-nano means it since 0.5.6, in 0.5.5 it was heart-nano-s): its duration and acoustic models see only nearby phonemes (no
                 position or utterance-length inputs, NANO_LOCAL_FEATURES 1). Read from the model
                 repo's heartnanos/ folder. Suffix `_heartnano`. Since 2026-11-25 this replaces the
                 first heart-nano (294,279 params, heartnano/ folder, lineage en_us_e13b) on the same
