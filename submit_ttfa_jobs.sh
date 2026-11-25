@@ -242,7 +242,7 @@ TTFA_TARGETS=(
     # Whole-utterance synthesis (streaming: false) except the too-long fallback; --threads=1 as in the eval.
     "sanotts-heart|sanotts||ampixa/sanoTTS|--voice=heart --threads=1"
     "sanotts-amy|sanotts||ampixa/sanoTTS|--voice=amy --threads=1"
-    "sanotts-heart-nano-s|sanotts||ampixa/sanoTTS|--voice=heart-nano-s --threads=1"
+    "sanotts-heart-nano|sanotts||ampixa/sanoTTS|--voice=heart-nano --threads=1"
     # ONNX Runtime CPU only (run_eval.py refuses a GPU device):  TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh pawp-tts-1.5m
     # No Space: python:3.12-slim + pip install from pawp_tts/job_image.sh. Bounded-halo streaming runner,
     # first chunk 60 ms; --threads=1 as in the eval so TTFA is independent of host cores.

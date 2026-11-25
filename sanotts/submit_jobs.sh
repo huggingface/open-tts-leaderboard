@@ -20,7 +20,7 @@ RUN_EVAL_INJECT="$(inject_run_eval)"
 
 # ── Voice → output suffix ────────────────────────────────────────────────────
 # All voices live in one model repo, so a non-default voice is a variant: MODE_SUFFIX must match the
-# suffix run_eval.py writes (publish with `open_results_pr.py --variant amy` / `--variant heartnanos`).
+# suffix run_eval.py writes (publish with `open_results_pr.py --variant amy` / `--variant heartnano`).
 resolve_mode() {
     local _ VOICE
     read -r _ VOICE <<< "${MODEL_CFG}"
@@ -28,13 +28,13 @@ resolve_mode() {
     case "${VOICE:-heart}" in
         heart) MODE_SUFFIX="" ;;
         amy) MODE_SUFFIX="_amy" ;;
-        heart-nano-s) MODE_SUFFIX="_heartnanos" ;;
-        *) echo "sanotts: unknown voice '${VOICE}' (heart, amy, heart-nano-s)" >&2; exit 1 ;;
+        heart-nano) MODE_SUFFIX="_heartnano" ;;
+        *) echo "sanotts: unknown voice '${VOICE}' (heart, amy, heart-nano)" >&2; exit 1 ;;
     esac
     true
 }
 
-# English only: the four evaluated voices are English, with the package's English front end.
+# English only: the three evaluated voices are English, with the package's English front end.
 SUPPORTED_LANGUAGES="en"
 
 # ── Stage 1: TTS generation. MODEL_CFG = "model_id voice" (no batched API — one sample at a time) ──
@@ -63,8 +63,8 @@ generate_stage() {
 }
 
 # ── Models: "model_id voice" (CLI args override) ─────────────────────────────
-# heart is the default row; amy and heart-nano-s are the two other English voices (variants).
-MODEL_CONFIGS=("ampixa/sanoTTS heart" "ampixa/sanoTTS amy" "ampixa/sanoTTS heart-nano-s")
+# heart is the default row; amy and heart-nano are the two other English voices (variants).
+MODEL_CONFIGS=("ampixa/sanoTTS heart" "ampixa/sanoTTS amy" "ampixa/sanoTTS heart-nano")
 [[ $# -gt 0 ]] && MODEL_CONFIGS=("$@")
 
 run_pipeline
