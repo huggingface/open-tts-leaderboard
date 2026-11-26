@@ -356,6 +356,8 @@ python scripts/rescore_all.py --models k2-fsa/OmniVoice openbmb/VoxCPM2 --target
 python scripts/rescore_all.py --skip_sync --open_pr
 ```
 
+Normalizer tests: `python -m unittest discover tests` (from the repository root).
+
 
 ## Citation 
 

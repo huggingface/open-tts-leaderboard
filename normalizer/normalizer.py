@@ -18,6 +18,8 @@ import unicodedata
 from fractions import Fraction
 from typing import Iterator, List, Match, Optional, Union
 from .english_abbreviations import english_name_normalizer, english_spelling_normalizer, english_compound_normalizer
+from .spoken_forms import expand_written_forms, fold_spoken_forms
+from .times_ordinals import expand_times_and_ordinals, fold_time_readings
 
 
 # non-ASCII letters that are not separated by "NFKD" normalization
@@ -654,6 +656,8 @@ class EnglishTextNormalizer:
         self.compound_words = english_compound_normalizer
 
     def __call__(self, s: str):
+        s = expand_times_and_ordinals(s, "en")  # "1:15 a.m." as read ("115"), "5:00 a.m." as "5 a.m."
+        s = expand_written_forms(s, "en")  # units after a number ("40 mph") to their spoken words
         s = s.lower()
 
         s = remove_non_speech_annotations(s)
@@ -675,6 +679,8 @@ class EnglishTextNormalizer:
         s = self.standardize_spellings(s)
         s = self.standardize_names(s)
         s = self.standardize_acronyms(s)
+        s = fold_spoken_forms(s, "en")  # "+30" read "plus thirty" -> "30" (a sign); "miles an hour"
+        s = fold_time_readings(s, "en")  # "world war i" -> "world war one", as it is read
 
         # now remove prefix/suffix symbols that are not preceded/followed by numbers
         s = re.sub(r"[.$¢€£]([^0-9])", r" \1", s)
