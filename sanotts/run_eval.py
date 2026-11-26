@@ -12,9 +12,8 @@ pip package. Three English voices are evaluated, one leaderboard row each:
   * heart-nano  104,215 params, 24 kHz. A much smaller, streaming-native student of the same
                 nano architecture and Kokoro af_heart teacher: int8 duration and acoustic models that
                 see only nearby phonemes (no position or utterance-length inputs, NANO_LOCAL_FEATURES 1;
-                56,981 params), and a harmonic-plus-noise decoder (47,234 params: a causal-leaning
-                ConvNeXt predicts f0, voicing and spectral envelopes; 80 harmonics with minimum-phase
-                phases plus filtered noise are synthesised in NumPy). Runtime in sanotts >= 0.5.7.
+                56,981 params), and a harmonic-plus-noise decoder (47,234 params) that runs in NumPy.
+                Runtime in sanotts >= 0.5.7.
                 Read from the model repo's heartnano-dsp/ folder. Suffix `_heartnano`. This replaces
                 the first heart-nano (294,279 params, heartnano/ folder, lineage en_us_e13b) on the same
                 row. Our CV3-Eval en runs: see the PR description.
@@ -54,7 +53,7 @@ nano voices (about 21 ms of audio once the iSTFT centre padding is trimmed) and 
 heart-nano does not wait for the whole text: it converts the first words (the package checks that the
 whole-text conversion starts with the same ids and raises otherwise), decodes the frames whose receptive
 field lies inside them, then converts the rest; its synthesize() is that stream concatenated (bit for bit
-since 0.5.7: the harmonic-plus-noise decoder carries its phase, crossfade and noise state across chunks). The
+since 0.5.7). The
 pre-chunk work and the failed whole-text attempt of a too-long text are inside the timed call. The eval loop below keeps calling `synthesize()`, so the scored audio is
 the non-streamed rendering.
 
