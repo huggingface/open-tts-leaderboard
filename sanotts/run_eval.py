@@ -9,24 +9,31 @@ pip package. Three English voices are evaluated, one leaderboard row each:
                 distilled from Kokoro-82M af_heart. The default row (no suffix).
   * amy         1,454,284 params, 22.05 kHz. "piperlite" graph (duration + token-context acoustic +
                 time-domain decoder), fp16 weights, distilled from Piper en_US-amy. Suffix `_amy`.
-  * heart-nano    294,279 params, 24 kHz. A separate, much smaller student of the same nano
-                architecture (lineage en_us_e13b vs heart's en_us_r227f32), stored in int8.
-                Suffix `_heartnano`.
+  * heart-nano  104,215 params, 24 kHz. A much smaller, streaming-native student of the same
+                nano architecture and Kokoro af_heart teacher: int8 duration and acoustic models that
+                see only nearby phonemes (no position or utterance-length inputs, NANO_LOCAL_FEATURES 1;
+                56,981 params), and a harmonic-plus-noise decoder (47,234 params) that runs in NumPy.
+                Runtime in sanotts >= 0.5.7.
+                Read from the model repo's heartnano-dsp/ folder. Suffix `_heartnano`. This replaces
+                the first heart-nano (294,279 params, heartnano/ folder, lineage en_us_e13b) on the same
+                row. Our CV3-Eval en runs: see the PR description.
 
-Weights are read from the model repo pinned to the commit main pointed to on 2026-11-07 (the package's
+Weights are read from the model repo pinned to the commit main pointed to on 2026-11-26, which added
+heartnano-dsp/ and left the heart and amy-en-1p46m folders byte-identical to the 2026-11-07 pin used
+before (the package's
 own default fetch reads the moving `main`; the package checks every blob against the sha256 in the
 voice's metadata).
 The G2P is the package's default, espeak-free English front end for each voice (a lexicon plus an
 out-of-vocabulary fallback model), so no GPL espeak-ng is involved.
 
 Text handling. Every text is first synthesized WHOLE, exactly as `Synthesizer.synthesize` takes it.
-The nano voices (heart, heart-nano) refuse inputs longer than their duration model's 207-token window
+heart refuses inputs longer than its duration model's 207-token window
 (`FrontendError(kind="too_long")`), and the package has no long-text loop of its own, so ONLY on that
 error this backend (not the package) falls back: it splits the text into sentences (the regex of the
 project's streaming integration, custom_components/sanotts/tts.py; fragments with no word character
 stay attached to the preceding sentence), and any sentence still too long is cut at clause
 punctuation (, ; :) in its middle third, else at the space nearest its middle, recursively. Pieces are
-concatenated with no added silence. amy has no window and is never split. The fallback runs inside the
+concatenated with no added silence. amy and heart-nano have no window and are never split. The fallback runs inside the
 timed call (RTFx and TTFA include the failed whole-text attempt), and each manifest row that needed it
 records `frontend = {"sentences": k, "pieces": n}` (n > k means mid-sentence cuts).
 
@@ -39,11 +46,15 @@ noise excitation is seeded inside the package).
 
 Streaming (TTFA probe only). `Synthesizer.synthesize_stream` (sanotts >= 0.5.1) runs the utterance-global
 steps over the whole text (G2P, durations, the acoustic token stage, the decoder noise draw), then the
-local stages chunk by chunk (for heart / heart-nano the acoustic frame stage and the decoder, for amy the
+local stages chunk by chunk (for heart the acoustic frame stage and the decoder, for amy the
 decoder) on windows widened by their receptive field, so the chunks concatenate to `synthesize()`'s audio
-(to float32 rounding; the package tests this). The first chunk is 8 frames, about 64 ms of audio from
-heart / heart-nano and 93 ms from amy; the pre-chunk work and the failed whole-text attempt of a too-long
-text are inside the timed call. The eval loop below keeps calling `synthesize()`, so the scored audio is
+(to float32 rounding; the package tests this). Since sanotts 0.5.5 the first chunk is 4 frames for the
+nano voices (about 21 ms of audio once the iSTFT centre padding is trimmed) and 8 frames (93 ms) for amy.
+heart-nano does not wait for the whole text: it converts the first words (the package checks that the
+whole-text conversion starts with the same ids and raises otherwise), decodes the frames whose receptive
+field lies inside them, then converts the rest; its synthesize() is that stream concatenated (bit for bit
+since 0.5.7). The
+pre-chunk work and the failed whole-text attempt of a too-long text are inside the timed call. The eval loop below keeps calling `synthesize()`, so the scored audio is
 the non-streamed rendering.
 
 Stage 2 (`transformers/transcribe.py`) fills `pred_text` with Qwen3-ASR, and stage 4
@@ -66,14 +77,14 @@ from run_eval_utils import (
     pending_batches, print_next_steps, set_seed, warm_up, wav_rel_path, write_entry,
 )
 
-# Pinned model repo revision (ampixa/sanoTTS main on 2026-11-07). Every voice below is read from it.
-MODEL_REVISION = "4a8194aa1dd958033ee449b3ad30c37e536b216e"
+# Pinned model repo revision (ampixa/sanoTTS main on 2026-11-26). Every voice below is read from it.
+MODEL_REVISION = "091814b27c17febea3b5951f0a836e5c30506636"
 
 # voice -> (folder in the model repo, learned parameters, manifest suffix). heart is the default row.
 VOICES = {
     "heart": ("heart", 2_272_145, ""),
     "amy": ("amy-en-1p46m", 1_454_284, "_amy"),
-    "heart-nano": ("heartnano", 294_279, "_heartnano"),
+    "heart-nano": ("heartnano-dsp", 104_215, "_heartnano"),
 }
 DEFAULT_VOICE = "heart"
 
