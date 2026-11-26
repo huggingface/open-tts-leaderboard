@@ -7,21 +7,22 @@ from scratch at 24 kHz with two fixed voices (F female, M male). It is the Russi
 generator (no neural vocoder), trained from scratch on Russian. CPU-only. Licence apache-2.0 (its
 bundled ruaccent stress data is MIT).
 
-Inference uses the model's own pip package ``tiny_voca_ru`` (ONNX Runtime backend, no PyTorch). The
-front end is pure-Python: Russian text normalisation, rule-based G2P into a 61-symbol Russian IPA set,
-and stress placement. We use the default ``lite`` stress (bundled dictionary + ``accent.onnx``), which
-is what the model card's WER/CER numbers are measured with; ``full`` (the 10 MB ``omograph.onnx``) is a
-slower homograph refinement not needed here. ``Synthesizer.synthesize`` does normalisation, chunking to
-the 512-token budget, sentence joining and peak-limiting internally, so one call handles any text. A
-text with nothing to pronounce is scored as a tenth of a second of silence.
+Inference uses the model's own pip package ``tiny_voca_ru`` (PyTorch CPU backend: native FFT/STFT
+in the source-filter vocoder is ~1.5x faster than the ONNX conv1d-DFT export). The front end is
+pure-Python: Russian text normalisation, rule-based G2P into a 61-symbol Russian IPA set, and stress
+placement. We use the default ``lite`` stress (bundled dictionary + ``accent.onnx``), which is what
+the model card's WER/CER numbers are measured with; ``full`` (the 10 MB ``omograph.onnx``) is a
+slower homograph refinement not needed here. ``Synthesizer.synthesize`` does normalisation, chunking
+to the 512-token budget, sentence joining and peak-limiting internally, so one call handles any text.
+A text with nothing to pronounce is scored as a tenth of a second of silence.
 
 Each voice is its own leaderboard row:
   * ``F``  default row (no manifest suffix).
   * ``M``  variant row, manifest suffix ``_m`` (publish with ``--variant m``).
 
-Device: CPU only. ``--threads`` caps onnxruntime intra-op threads (default 1: a fixed count keeps RTFx
-independent of the host's core count, matching the tiny-voca/broca convention). The package does not
-expose a thread knob, so we cap it by wrapping ``onnxruntime.InferenceSession`` before the model loads.
+Device: CPU only. ``--threads`` caps torch intra-op threads (default 1: a fixed count keeps RTFx
+independent of the host's core count, matching the tiny-voca/broca convention). ``accent.onnx`` in
+``tiny_voca_ru.frontend.stress`` already pins its own SessionOptions to 1/1 threads.
 """
 
 import argparse
@@ -30,6 +31,7 @@ import time
 
 import numpy as np
 import soundfile as sf
+import torch
 from tqdm import tqdm
 
 from run_eval_utils import (
@@ -40,35 +42,14 @@ from run_eval_utils import (
 PEAK = 0.99
 STRESS = "lite"   # the model card's reported WER/CER are measured with the default lite stress
 
-# Pinned model repo revision (egnch/tiny-voca-ru main on 2026-11-22).
-MODEL_REVISION = "2723b0e71fea216001bd4f6caf0866eb06879339"
+# Pinned model repo revision (egnch/tiny-voca-ru main on 2026-11-25, v0.2.3).
+MODEL_REVISION = "406538817cc365e55b6571c12b81ca74e4cb878c"
 
 VOICES = {
     "F": "",      # default row
     "M": "_m",    # variant row (publish with --variant m)
 }
 DEFAULT_VOICE = "F"
-
-
-def _cap_onnx_threads(threads):
-    """Make every onnxruntime session the package builds use a fixed intra-op thread count.
-
-    ``tiny_voca_ru`` creates ``ort.InferenceSession(path, providers=...)`` with no SessionOptions, so it
-    would otherwise default to all host cores and make RTFx depend on the machine. We wrap the
-    constructor to inject a SessionOptions with the fixed thread count when the caller gives none.
-    """
-    import onnxruntime as ort
-    original = ort.InferenceSession
-
-    def wrapped(*args, **kwargs):
-        if "sess_options" not in kwargs and len(args) < 2:
-            opts = ort.SessionOptions()
-            opts.intra_op_num_threads = threads
-            opts.inter_op_num_threads = 1
-            kwargs["sess_options"] = opts
-        return original(*args, **kwargs)
-
-    ort.InferenceSession = wrapped
 
 
 def main(args):
@@ -78,12 +59,15 @@ def main(args):
         raise SystemExit(f"--voice must be one of {list(VOICES)}")
     mode_suffix = VOICES[args.voice]
 
-    _cap_onnx_threads(args.threads)
-    from tiny_voca_ru import Synthesizer
-    synth = Synthesizer.from_pretrained(args.model_id, backend="onnx", revision=args.revision)
+    torch.set_num_threads(args.threads)
+    torch.set_num_interop_threads(1)
+    from tiny_voca_ru import TorchSynthesizer
+    synth = TorchSynthesizer.from_pretrained(args.model_id, device="cpu", revision=args.revision)
     sample_rate = int(synth.sample_rate)
-    print(f"Loaded tiny-voca-ru voice={args.voice} (revision {args.revision}) | onnxruntime, "
-          f"{sample_rate} Hz, stress={STRESS}, threads={args.threads}.")
+    n_params = sum(p.numel() for p in synth.model.parameters())
+    print(f"Loaded tiny-voca-ru voice={args.voice} (revision {args.revision}) | pytorch cpu, "
+          f"{n_params / 1e9:.4f}B parameters ({n_params:,}), {sample_rate} Hz, "
+          f"stress={STRESS}, threads={args.threads}.")
 
     failures = []
 
@@ -91,7 +75,7 @@ def main(args):
         """Return (audio float32, elapsed_s). Text with nothing to pronounce is scored as silence."""
         start = time.perf_counter()
         try:
-            result = synth.synthesize(text, voice=args.voice, stress=STRESS, peak=PEAK)
+            result = synth.synthesize(text, voice=args.voice, seed=args.seed, stress=STRESS, peak=PEAK)
             audio = np.asarray(result.audio, dtype=np.float32)
         except (ValueError, RuntimeError) as exc:
             failures.append(str(exc))
@@ -116,7 +100,8 @@ def main(args):
             model_id=args.model_id, dataset_path=args.dataset_path,
             dataset_config=args.dataset, split=args.split,
             out_dir=model_dir, mode_suffix=mode_suffix, n=args.ttfa_probe,
-            extra={"device": args.device, "voice": args.voice, "threads": args.threads, "revision": args.revision},
+            extra={"device": args.device, "voice": args.voice, "seed": args.seed,
+                   "threads": args.threads, "revision": args.revision},
         )
         return
 
@@ -147,11 +132,11 @@ if __name__ == "__main__":
     parser.add_argument("--model_id", type=str, default="egnch/tiny-voca-ru",
                         help="tiny-voca-ru model repo (apache-2.0).")
     parser.add_argument("--revision", type=str, default=MODEL_REVISION,
-                        help="Model repo revision (default: main on 2026-11-22).")
+                        help="Model repo revision (default: main on 2026-11-25, v0.2.3).")
     parser.add_argument("--voice", type=str, default=DEFAULT_VOICE,
                         help=f"One of {list(VOICES)}. {DEFAULT_VOICE} is the default row.")
     parser.add_argument("--threads", type=int, default=1,
-                        help="onnxruntime intra-op threads (default 1 for RTFx independent of host cores).")
+                        help="torch intra-op threads (default 1 for RTFx independent of host cores).")
     add_common_args(parser)
     # ``--device`` comes from ``add_common_args``; override the default to cpu since tiny-voca-ru is
     # CPU-only (``main`` refuses a GPU device).
