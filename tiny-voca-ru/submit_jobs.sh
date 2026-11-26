@@ -9,7 +9,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/tts_jobs_common
 # ── Backend config ───────────────────────────────────────────────────────────
 # Stage-1 environment: no Docker Space. GEN_IMAGE and gen_setup live in job_image.sh.
 source "${BACKEND_DIR}/job_image.sh"
-# onnxruntime intra-op threads (run_eval.py's --threads). 1: tiny-voca-ru's matrices are small, and a
+# torch intra-op threads (run_eval.py's --threads). 1: tiny-voca-ru's matrices are small, and a
 # fixed count keeps RTFx independent of the h200 host's core count.
 TINY_VOCA_RU_THREADS="${TINY_VOCA_RU_THREADS:-1}"
 GEN_TIMEOUT="${GEN_TIMEOUT:-2h}"
