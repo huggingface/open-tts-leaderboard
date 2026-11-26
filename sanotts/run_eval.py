@@ -9,16 +9,18 @@ pip package. Three English voices are evaluated, one leaderboard row each:
                 distilled from Kokoro-82M af_heart. The default row (no suffix).
   * amy         1,454,284 params, 22.05 kHz. "piperlite" graph (duration + token-context acoustic +
                 time-domain decoder), fp16 weights, distilled from Piper en_US-amy. Suffix `_amy`.
-  * heart-nano  263,103 params, 24 kHz, int8. A much smaller, streaming-native student of the same
-                nano architecture and Kokoro af_heart teacher (runtime in sanotts >= 0.5.5; the
-                package's name heart-nano means it since 0.5.6, in 0.5.5 it was heart-nano-s): its duration and acoustic models see only nearby phonemes (no
-                position or utterance-length inputs, NANO_LOCAL_FEATURES 1). Read from the model
-                repo's heartnanos/ folder. Suffix `_heartnano`. Since 2026-11-25 this replaces the
-                first heart-nano (294,279 params, heartnano/ folder, lineage en_us_e13b) on the same
-                row: on our CV3-Eval en runs WER 1.42 vs 1.57, UTMOS 2.51 vs 2.37.
+  * heart-nano  104,215 params, 24 kHz. A much smaller, streaming-native student of the same
+                nano architecture and Kokoro af_heart teacher: int8 duration and acoustic models that
+                see only nearby phonemes (no position or utterance-length inputs, NANO_LOCAL_FEATURES 1;
+                56,981 params), and a harmonic-plus-noise decoder (47,234 params: a causal-leaning
+                ConvNeXt predicts f0, voicing and spectral envelopes; 80 harmonics with minimum-phase
+                phases plus filtered noise are synthesised in NumPy). Runtime in sanotts >= 0.5.7.
+                Read from the model repo's heartnano-dsp/ folder. Suffix `_heartnano`. This replaces
+                the first heart-nano (294,279 params, heartnano/ folder, lineage en_us_e13b) on the same
+                row. Our CV3-Eval en runs: see the PR description.
 
-Weights are read from the model repo pinned to the commit main pointed to on 2026-11-25, which added
-heartnanos/ and left the heart and amy-en-1p46m folders byte-identical to the 2026-11-07 pin used
+Weights are read from the model repo pinned to the commit main pointed to on 2026-11-26, which added
+heartnano-dsp/ and left the heart and amy-en-1p46m folders byte-identical to the 2026-11-07 pin used
 before (the package's
 own default fetch reads the moving `main`; the package checks every blob against the sha256 in the
 voice's metadata).
@@ -51,7 +53,8 @@ decoder) on windows widened by their receptive field, so the chunks concatenate 
 nano voices (about 21 ms of audio once the iSTFT centre padding is trimmed) and 8 frames (93 ms) for amy.
 heart-nano does not wait for the whole text: it converts the first words (the package checks that the
 whole-text conversion starts with the same ids and raises otherwise), decodes the frames whose receptive
-field lies inside them, then converts the rest; its synthesize() is that stream concatenated. The
+field lies inside them, then converts the rest; its synthesize() is that stream concatenated (bit for bit
+since 0.5.7: the harmonic-plus-noise decoder carries its phase, crossfade and noise state across chunks). The
 pre-chunk work and the failed whole-text attempt of a too-long text are inside the timed call. The eval loop below keeps calling `synthesize()`, so the scored audio is
 the non-streamed rendering.
 
@@ -75,14 +78,14 @@ from run_eval_utils import (
     pending_batches, print_next_steps, set_seed, warm_up, wav_rel_path, write_entry,
 )
 
-# Pinned model repo revision (ampixa/sanoTTS main on 2026-11-25). Every voice below is read from it.
-MODEL_REVISION = "ffa15db4f2ba5290f32e963de2e282ea0a12c454"
+# Pinned model repo revision (ampixa/sanoTTS main on 2026-11-26). Every voice below is read from it.
+MODEL_REVISION = "091814b27c17febea3b5951f0a836e5c30506636"
 
 # voice -> (folder in the model repo, learned parameters, manifest suffix). heart is the default row.
 VOICES = {
     "heart": ("heart", 2_272_145, ""),
     "amy": ("amy-en-1p46m", 1_454_284, "_amy"),
-    "heart-nano": ("heartnanos", 263_103, "_heartnano"),
+    "heart-nano": ("heartnano-dsp", 104_215, "_heartnano"),
 }
 DEFAULT_VOICE = "heart"
 
