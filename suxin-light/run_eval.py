@@ -34,8 +34,14 @@ length, and the pad is **synthesised speech** (PAD phonemes get duration), not z
 duration head to crop with. Using that tail would inflate ``duration`` and pollute ASR, so this
 backend stays at batch size 1 (one ONNX call per sentence piece).
 
-Streaming / TTFA. Sentence/chunk generators exist but are not native intra-model streaming.
-``--ttfa_probe`` uses the whole-utterance clock of ``synthesize_long``.
+Streaming / TTFA. The ONNX graph is a full-sequence VITS forward (phonemes → wav); there is no
+duration head or chunked vocoder, so intra-model frame streaming is not possible. The package
+already synthesises incrementally: ``split_sentences`` then one ``synthesize`` (one ONNX run)
+per sentence/clause. ``synthesize_long`` / ``synthesize_stream`` **hold** the first piece until
+the second exists so they can crossfade — that makes first audio equal last audio. The TTFA
+path uses the same split and the same per-piece ONNX calls, but emits the first piece as soon
+as it returns (Paradee / Woof / Kokoro sentence streaming). A one-sentence prompt has nothing
+to stream (``n_chunks == 1``). Quality eval stays on ``synthesize_long`` so WER/CER do not move.
 """
 
 import argparse
@@ -130,6 +136,43 @@ def _configure_session(tts, onnx_path, device, threads, conv_algo_search):
     return loaded
 
 
+# Inter-sentence gap used by SuxinTTS.synthesize_long (50 ms). The TTFA path inserts the same
+# silence between pieces so audio_s is in the same ballpark; it does not apply the crossfade hold.
+_STREAM_SILENCE_S = 0.05
+
+
+def synth_streaming(tts, text, early_stop=False):
+    """Sentence/clause streaming for TTFA. Return ``(audio, first_ts, n_chunks)``.
+
+    Same ``split_sentences`` + ``synthesize`` loop as ``synthesize_long``, but the first non-empty
+    piece is handed back as soon as that ONNX call returns instead of being buffered for a
+    crossfade. ``first_ts`` is ``time.perf_counter()`` at that moment, or None if nothing spoke.
+    ``early_stop`` aborts after the first piece (probe tail). A one-piece prompt has nothing to
+    stream: first audio is last audio.
+    """
+    sample_rate = int(tts.sample_rate)
+    silence = np.zeros(int(sample_rate * _STREAM_SILENCE_S), dtype=np.float32)
+    first_ts = None
+    chunks = []
+    for sent in tts.split_sentences(text):
+        audio = tts.synthesize(sent)
+        if audio is None:
+            continue
+        audio = np.asarray(audio, dtype=np.float32).reshape(-1)
+        if audio.size == 0:
+            continue
+        if first_ts is None:
+            first_ts = time.perf_counter()
+            chunks.append(audio)
+            if early_stop:
+                break
+        else:
+            chunks.append(np.concatenate([silence, audio]))
+    if not chunks:
+        return np.zeros(1, dtype=np.float32), None, 0
+    return np.concatenate(chunks), first_ts, len(chunks)
+
+
 def main(args):
     if args.batch_size != 1:
         raise SystemExit(
@@ -216,17 +259,25 @@ def main(args):
     extra = {
         "device": args.device, "threads": args.threads, "revision": args.revision,
         "graph": graph_key, "onnx": onnx_name, "providers": list(providers),
-        "streaming_api": "none (synthesize_long whole-utterance)", "batch_size": 1,
+        "streaming_api": "split_sentences + synthesize (first piece immediate)", "batch_size": 1,
     }
 
     if args.ttfa_probe != 0:
         from ttfa_probe import run_probe, sample_indices
+        chunk_counts = []
+
+        def _ttfa_gen(job, early_stop):
+            audio, first, n_chunks = synth_streaming(tts, job["text"], early_stop)
+            chunk_counts.append(n_chunks)
+            return audio, sample_rate, first
+
         run_probe(
-            lambda job: (synth_one(job["text"])[0], sample_rate, None),
+            _ttfa_gen,
             [{"text": dataset[i][args.text_column]} for i in sample_indices(args.ttfa_probe, len(dataset))],
             model_id=args.model_id, dataset_path=args.dataset_path,
             dataset_config=args.dataset, split=args.split,
-            out_dir=model_dir, n=args.ttfa_probe, extra=extra,
+            out_dir=model_dir, n=args.ttfa_probe,
+            extra={**extra, "segments_per_utterance": chunk_counts},
         )
         return
 
