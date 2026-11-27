@@ -253,9 +253,9 @@ TTFA_TARGETS=(
     # whole-utterance synthesis (no streaming API); --threads=1 as in the eval.
     "tiny-voca-f2|tiny-voca||n4ze3m/tiny-voca|--voice=F2 --threads=1"
     "tiny-voca-m2|tiny-voca||n4ze3m/tiny-voca|--voice=M2 --threads=1"
-    # CPU only (run_eval.py refuses a GPU device):  TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh suxin-light
-    # No Space: python:3.12-slim + pip install from suxin-light/job_image.sh. Whole-utterance
-    # synthesize_long (sentence/chunk APIs are not native intra-model streaming); --threads=1 as in the eval.
+    # CUDA EP default (FP32 graph); CPU: TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh suxin-light
+    # No Space: pytorch CUDA image + pip install from suxin-light/job_image.sh (onnxruntime-gpu on
+    # CUDA, CPU onnxruntime on cpu). Whole-utterance synthesize_long; --threads=1 as in the eval.
     "suxin-light|suxin-light||TEQUILA123/suxin-light|--threads=1"
     # HTTP CLIENTS of an inference server the job starts itself (see the preamble in submit_one);
     # --server_pid makes a dead server fail the wait immediately.

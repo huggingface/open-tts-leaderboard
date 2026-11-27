@@ -3,36 +3,46 @@ TTS synthesis for the Open TTS Leaderboard (suxin-light backend, stage 1).
 
 suxin-light (https://huggingface.co/TEQUILA123/suxin-light) is a 28.65 M-parameter Mandarin–English
 VITS student distilled from Fun-CosyVoice3-0.5B, with the SuxinVoc decoder, at 22.05 kHz mono. One
-fixed voice; no voice cloning. Inference is the INT8-excldec ONNX graph
-(``zh_en-suxin-light.int8-excldec.onnx``, ~67 MB) on onnxruntime ``CPUExecutionProvider`` only,
-driven by the repo's own ``suxin_tts`` package (``SuxinTTS`` / ``MixedFrontend``).
+fixed voice; no voice cloning. The repo ships two ONNX graphs of the **same** weights:
+
+  * ``zh_en-suxin-light.onnx`` (~88 MB) — FP32 source graph. Default on ``--device=cuda``.
+  * ``zh_en-suxin-light.int8-excldec.onnx`` (~67 MB) — QDQ INT8 with decoder + duration path left
+    in float (the on-device graph). Default on ``--device=cpu``.
+
+There is no FP16 graph. INT8 is dynamic-range QDQ (hundreds of ``QuantizeLinear`` nodes); those
+ops typically stay on the CPU even under the CUDA EP, so GPU eval uses the FP32 graph. Quality:
+FP32 is the unquantised source, so it should match or slightly beat advertised INT8 (the card's
+x86 single-thread RTF is 0.034 FP32 vs 0.026 INT8; duration-predictor numerics also differ
+slightly, so wav lengths are not bit-identical). Override with ``--graph fp32|int8``.
 
 The front end is mixed ``phoneme_type`` (stock piper-tts cannot load it): Chinese via pypinyin,
-English via piper-tts's ``EspeakPhonemizer`` (espeak-ng data, GPL-3.0). PAD is inserted only after
-syllable/word ends (``pad_mode=group``). In a Chinese context, Arabic digits are read as Chinese
-numerals inside the frontend (``请到3号窗口`` → 三); a purely English number stays on espeak
-(``in his 30s``). That is the model's own text handling, not an extra leaderboard normaliser.
+English via piper-tts's ``EspeakPhonemizer`` (espeak-ng data, GPL-3.0). G2P always runs on CPU.
+PAD is inserted only after syllable/word ends (``pad_mode=group``). In a Chinese context, Arabic
+digits are read as Chinese numerals inside the frontend (``请到3号窗口`` → 三).
 
-Text handling is exactly the CLI default (``suxin-tts`` / ``infer.py`` without ``--no-split``):
-``SuxinTTS.synthesize_long`` splits on sentence then clause punctuation, synthesises each piece,
-and stitches with a 50 ms gap plus a short crossfade. A text with nothing to pronounce is scored
-as a tenth of a second of silence.
+Text handling is the CLI default (``suxin-tts`` without ``--no-split``): ``synthesize_long``
+splits on sentence then clause punctuation, synthesises each piece, and stitches with a 50 ms
+gap plus a short crossfade. A text with nothing to pronounce is scored as a tenth of a second
+of silence.
 
-Device: CPU only. ``--threads`` caps onnxruntime intra-op threads (default 1: a fixed count keeps
-RTFx independent of the host's core count, matching the tiny-voca / tiny-broca convention). The
-model card's on-device recommendation of 4 threads is for an 8-core Cortex-A55, not this eval.
+Device: ``cuda`` (default; ``CUDAExecutionProvider`` + ``disable_fallback``) or ``cpu``.
+``--threads`` caps onnxruntime intra-op threads (default 1).
 
-Streaming / TTFA. The package exposes sentence/chunk generators (``synthesize_stream``,
-``synthesize_stream_from_tokens``) but they are not native intra-model streaming: each ONNX call
-still emits a whole clause, and ``synthesize_stream`` withholds the first piece until the next one
-arrives so it can crossfade. The eval path is ``synthesize_long`` (one complete wav). ``--ttfa_probe``
-therefore uses the whole-utterance clock (``first`` is None), same as tiny-voca / tiny-broca.
+Batching. Both graphs declare a dynamic ``batch_size`` on ``input`` / ``input_lengths`` / the
+audio output, and a padded batch **does** run. The output is padded to the longest item's audio
+length, and the pad is **synthesised speech** (PAD phonemes get duration), not zeros. There is no
+duration head to crop with. Using that tail would inflate ``duration`` and pollute ASR, so this
+backend stays at batch size 1 (one ONNX call per sentence piece).
+
+Streaming / TTFA. Sentence/chunk generators exist but are not native intra-model streaming.
+``--ttfa_probe`` uses the whole-utterance clock of ``synthesize_long``.
 """
 
 import argparse
 import os
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
@@ -44,18 +54,92 @@ from run_eval_utils import (
 )
 
 SAMPLE_RATE = 22050
-# Model card: 28.65 M VITS student. The INT8 ONNX session is not a torch nn.Module, so this is
-# printed as a constant rather than counted from parameters().
+# Model card: 28.65 M VITS student. ONNX initializer counts are ~20.6 M (fused / const-folded).
 N_PARAMS = 28_650_000
-DEFAULT_ONNX = "zh_en-suxin-light.int8-excldec.onnx"
+
+GRAPHS = {
+    "fp32": "zh_en-suxin-light.onnx",
+    "int8": "zh_en-suxin-light.int8-excldec.onnx",
+}
 
 # Pinned model repo revision (TEQUILA123/suxin-light main on 2026-10-13).
 MODEL_REVISION = "5ee2da546f3635da263602842d238d8624cb7a81"
 
 
+def resolve_graph(device, graph):
+    """``auto``: FP32 on CUDA (QDQ INT8 is a poor CUDA-EP fit), INT8 on CPU (the advertised graph)."""
+    if graph == "auto":
+        return "fp32" if device.startswith("cuda") else "int8"
+    if graph not in GRAPHS:
+        raise SystemExit(f"--graph must be one of auto, {', '.join(GRAPHS)}; got {graph!r}")
+    return graph
+
+
+def _configure_session(tts, onnx_path, device, threads, conv_algo_search):
+    """Rebuild the ORT session with explicit providers. G2P/frontend is left on CPU.
+
+    The package hardcodes ``CPUExecutionProvider``. On CUDA we load the CUDA EP first, refuse a
+    silent CPU-only session, and disable ORT's per-run CPU fallback so a cuDNN miss doesn't get
+    timed as GPU. ``HEURISTIC`` conv search (not EXHAUSTIVE) so new input lengths are not
+    re-benchmarked inside the timed loop (see paradee-v1.3).
+    """
+    import onnxruntime as ort
+
+    # Wheel-shipped CUDA/cuDNN (nvidia-cudnn-cu12) are not on LD_LIBRARY_PATH in the job image.
+    # Skip on CPU: the CPU onnxruntime wheel warns if preload_dlls looks for CUDA 12.x.
+    if device.startswith("cuda") and hasattr(ort, "preload_dlls"):
+        ort.preload_dlls()
+
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = threads
+    so.inter_op_num_threads = 1
+    so.execution_mode = ort.ExecutionMode(0)
+    so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+    if device.startswith("cuda"):
+        available = ort.get_available_providers()
+        if "CUDAExecutionProvider" not in available:
+            raise RuntimeError(
+                f"--device={device} but this onnxruntime has no CUDA EP "
+                f"(available={available}). Install onnxruntime-gpu "
+                "(see suxin-light/job_image.sh)."
+            )
+        device_id = int(device.split(":")[1]) if ":" in device else 0
+        providers = [
+            ("CUDAExecutionProvider", {
+                "device_id": device_id,
+                "cudnn_conv_algo_search": conv_algo_search,
+            }),
+            "CPUExecutionProvider",
+        ]
+    elif device.startswith("cpu"):
+        providers = ["CPUExecutionProvider"]
+    else:
+        raise SystemExit(f"--device must be cpu or cuda[:N]; got {device!r}")
+
+    tts.session = ort.InferenceSession(str(onnx_path), sess_options=so, providers=providers)
+    loaded = tts.session.get_providers()
+    if device.startswith("cuda"):
+        if "CUDAExecutionProvider" not in loaded:
+            raise RuntimeError(
+                f"--device={device} but the CUDA EP did not load: {loaded}. "
+                "Need onnxruntime-gpu plus a matching CUDA/cuDNN (see suxin-light/job_image.sh)."
+            )
+        if hasattr(tts.session, "disable_fallback"):
+            tts.session.disable_fallback()
+    return loaded
+
+
 def main(args):
-    if not args.device.startswith("cpu"):
-        raise SystemExit("suxin-light runs on CPU only; pass --device=cpu.")
+    if args.batch_size != 1:
+        raise SystemExit(
+            f"--batch_size={args.batch_size} is not supported. Both ONNX graphs have a dynamic "
+            "batch dim, but the audio pad is synthesised speech (PAD phonemes get duration), not "
+            "silence, and there is no duration output to crop. Use --batch_size=1."
+        )
+
+    graph_key = resolve_graph(args.device, args.graph)
+    onnx_name = GRAPHS[graph_key]
 
     from huggingface_hub import snapshot_download
     if args.checkpoint_path:
@@ -64,13 +148,13 @@ def main(args):
         repo_dir = snapshot_download(
             args.model_id, revision=args.revision,
             local_dir=os.path.join(args.local_dir, args.model_id.replace("/", "-")),
-            allow_patterns=[
-                "suxin_tts/**",
-                DEFAULT_ONNX,
-                DEFAULT_ONNX + ".json",
-            ],
+            allow_patterns=["suxin_tts/**", onnx_name, onnx_name + ".json"],
         )
     print(f"Checkpoint: {repo_dir} (revision {args.revision})")
+
+    onnx_path = Path(repo_dir) / onnx_name
+    if not onnx_path.is_file():
+        raise SystemExit(f"missing {onnx_path}")
 
     if repo_dir not in sys.path:
         sys.path.insert(0, repo_dir)
@@ -78,7 +162,7 @@ def main(args):
 
     tts = SuxinTTS.from_pretrained(
         repo_dir,
-        model_file=DEFAULT_ONNX,
+        model_file=onnx_name,
         intra_op_num_threads=args.threads,
         inter_op_num_threads=1,
         noise_scale=0.0,
@@ -87,17 +171,28 @@ def main(args):
         use_lang_tags=False,
         normalize_audio=False,
     )
+    providers = _configure_session(
+        tts, onnx_path, args.device, args.threads, args.cudnn_conv_algo_search)
+
+    if graph_key == "int8" and args.device.startswith("cuda"):
+        print("WARNING: INT8 QDQ graph on CUDA EP — QuantizeLinear nodes often run on CPU. "
+              "Default GPU eval uses --graph fp32.")
+
     sample_rate = int(tts.sample_rate)
     if sample_rate != SAMPLE_RATE:
         print(f"WARNING: frontend sample_rate={sample_rate}, expected {SAMPLE_RATE}")
-    print(f"Loaded suxin-light | onnxruntime CPUExecutionProvider, {sample_rate} Hz, "
-          f"threads={args.threads} | TTS model size: {N_PARAMS / 1e9:.4f}B parameters "
-          f"({N_PARAMS:,}).")
+    print(f"Loaded suxin-light | graph={graph_key} ({onnx_name}) | providers={providers} | "
+          f"{sample_rate} Hz | threads={args.threads} | batch_size=1 | "
+          f"TTS model size: {N_PARAMS / 1e9:.4f}B parameters ({N_PARAMS:,}).")
 
     failures = []
 
     def synth_one(text):
-        """Return (audio float32, elapsed_s). Empty / unspeakable text is scored as silence."""
+        """Return (audio float32, elapsed_s). Empty / unspeakable text is scored as silence.
+
+        Times ``synthesize_long`` only (G2P + ONNX + stitch). ORT CUDA EP ``run`` is synchronous
+        (outputs are on host when it returns), so no extra device sync.
+        """
         start = time.perf_counter()
         try:
             audio = tts.synthesize_long(text)
@@ -118,10 +213,12 @@ def main(args):
 
     dataset = load_tts_dataset(args)
 
-    # ── TTFA probe: latency only, writing nothing but a JSON sidecar ─────────
-    # Sentence/chunk APIs do not yield playable audio before the next clause (crossfade hold), and
-    # there is no intra-model stream, so `first` is None and the probe records the whole-utterance
-    # time of synthesize_long — the same path as the scored wavs.
+    extra = {
+        "device": args.device, "threads": args.threads, "revision": args.revision,
+        "graph": graph_key, "onnx": onnx_name, "providers": list(providers),
+        "streaming_api": "none (synthesize_long whole-utterance)", "batch_size": 1,
+    }
+
     if args.ttfa_probe != 0:
         from ttfa_probe import run_probe, sample_indices
         run_probe(
@@ -129,9 +226,7 @@ def main(args):
             [{"text": dataset[i][args.text_column]} for i in sample_indices(args.ttfa_probe, len(dataset))],
             model_id=args.model_id, dataset_path=args.dataset_path,
             dataset_config=args.dataset, split=args.split,
-            out_dir=model_dir, n=args.ttfa_probe,
-            extra={"device": args.device, "threads": args.threads, "revision": args.revision,
-                   "onnx": DEFAULT_ONNX, "streaming_api": "none (synthesize_long whole-utterance)"},
+            out_dir=model_dir, n=args.ttfa_probe, extra=extra,
         )
         return
 
@@ -168,16 +263,18 @@ if __name__ == "__main__":
     parser.add_argument("--local_dir", type=str, default="/tmp/suxin_light_models",
                         help="Where to materialise the model repo as real files.")
     parser.add_argument("--threads", type=int, default=1,
-                        help="onnxruntime intra-op threads (default 1 for RTFx independent of host cores).")
-    add_common_args(parser)
-    # ``--device`` comes from ``add_common_args``; override the default to cpu since suxin-light is
-    # CPU-only (``main`` refuses a GPU device).
-    parser.set_defaults(seed=0, device="cpu")
+                        help="onnxruntime intra-op threads (default 1).")
+    parser.add_argument("--graph", type=str, default="auto", choices=["auto", "fp32", "int8"],
+                        help="ONNX graph: auto = fp32 on CUDA / int8 on CPU; or force fp32 / int8.")
+    parser.add_argument("--cudnn_conv_algo_search", type=str, default="HEURISTIC",
+                        help="CUDA EP conv algo search (HEURISTIC avoids EXHAUSTIVE re-bench per length).")
+    add_common_args(parser, batch_size=1)
+    parser.set_defaults(seed=0, device="cuda")
 
     args = parser.parse_args()
 
     print("*" * 100)
-    print(f"Generating TTS with {args.model_id} on "
+    print(f"Generating TTS with {args.model_id} device={args.device} graph={args.graph} on "
           f"{args.dataset_path} / {args.dataset} / {args.split}")
     print("*" * 100)
 
