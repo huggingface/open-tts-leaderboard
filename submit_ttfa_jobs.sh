@@ -253,6 +253,10 @@ TTFA_TARGETS=(
     # whole-utterance synthesis (no streaming API); --threads=1 as in the eval.
     "tiny-voca-f2|tiny-voca||n4ze3m/tiny-voca|--voice=F2 --threads=1"
     "tiny-voca-m2|tiny-voca||n4ze3m/tiny-voca|--voice=M2 --threads=1"
+    # CPU only (run_eval.py refuses a GPU device):  TTFA_DEVICE=cpu bash submit_ttfa_jobs.sh suxin-light
+    # No Space: python:3.12-slim + pip install from suxin-light/job_image.sh. Whole-utterance
+    # synthesize_long (sentence/chunk APIs are not native intra-model streaming); --threads=1 as in the eval.
+    "suxin-light|suxin-light||TEQUILA123/suxin-light|--threads=1"
     # HTTP CLIENTS of an inference server the job starts itself (see the preamble in submit_one);
     # --server_pid makes a dead server fail the wait immediately.
     "voxtral-tts|voxtral-tts|bezzam/evals-voxtral|mistralai/Voxtral-4B-TTS-2603|--base_url=http://localhost:${VLLM_PORT} --server_pid=\${SERVER_PID}"
@@ -287,6 +291,7 @@ NO_CLONE_FLAG=(
     scyllasband
     sanotts
     supertonic
+    suxin-light
     tiny-voca
     vibevoice_realtime
     voxtral-tts
